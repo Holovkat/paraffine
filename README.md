@@ -26,6 +26,59 @@ The working model for PARAFFINE is:
 
 AFFiNE is the source of truth for stored knowledge. Pi extensions, skills, and scheduled jobs are intended to provide the AI-assisted curation and refinement layer.
 
+## Runtime Surface
+
+The canonical PARAFFINE CLI now lives in this repository:
+
+- `scripts/paraffine-affine-inbox.js`
+
+This script is the stable runtime entrypoint for:
+
+- direct operator use from the PARA checkout
+- Pi extension bridging with `-e`
+- cron or other scheduled maintenance runs
+
+Pi and cron should target this repo-owned path instead of any temporary task worktree location.
+
+Example local invocation:
+
+```bash
+node scripts/paraffine-affine-inbox.js retrieve-notes --query "PARA" --limit 5
+```
+
+## Core Specs
+
+The current repo-owned standards surface is:
+
+- `features/paraffine-ai-curation-contract.md`
+- `features/paraffine-architecture.md`
+- `features/paraffine-pi-runtime-contract.md`
+- `features/paraffine-cron-runbook.md`
+- `features/paraffine-ai-maintenance-verification.md`
+
+These documents define the allowed AI maintenance actions, deterministic
+fallback rules, and the architecture boundary between PARAFFINE, AFFiNE, Pi,
+and cron.
+
+## Pi Runtime
+
+Recommended Pi launch:
+
+```bash
+PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
+pi -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
+   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
+   --model ollama/gemma4:26b
+```
+
+Convenience wrappers in this repo:
+
+- `scripts/paraffine-pi-run.sh`
+- `scripts/paraffine-pi-smoke.sh`
+
+Use the run wrapper for cron/non-interactive launch and the smoke helper for a
+scoped runtime verification pass.
+
 ## Inspirations and Attribution
 
 This project builds on and is inspired by:

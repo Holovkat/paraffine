@@ -20,3 +20,20 @@ Check off items here as the final sign-off that work is complete.
 
 ### Phase 3: Integration
 - [x] [GitHub issue #13](https://github.com/Holovkat/paraffine/issues/13) - Implement retrieval surface plus Pi or cron orchestration
+
+---
+
+## Sprint 2: PARAFFINE Pi-Driven AI Curation
+**Goal**: Add the Pi-driven AI maintenance layer so PARAFFINE can inspect AFFiNE note content, choose allowed curation actions with the local Ollama Gemma model, and run the same maintenance loop through Pi and cron.
+**Epic**: [GitHub issue #14](https://github.com/Holovkat/paraffine/issues/14)
+
+### Phase 1: Foundation
+- [x] [GitHub issue #15](https://github.com/Holovkat/paraffine/issues/15) - Stabilize PARAFFINE CLI ownership and repo script path
+- [x] [GitHub issue #16](https://github.com/Holovkat/paraffine/issues/16) - Define the AI curation action contract and note decision rubric
+
+### Phase 2: Runtime Integration
+- [x] [GitHub issue #17](https://github.com/Holovkat/paraffine/issues/17) - Specify and wire the Pi extension runtime boundary for PARAFFINE
+- [x] [GitHub issue #18](https://github.com/Holovkat/paraffine/issues/18) - Define cron maintenance entrypoints and failure handling
+
+### Phase 3: Verification
+- [x] [GitHub issue #19](https://github.com/Holovkat/paraffine/issues/19) - Add end-to-end smoke fixtures and verification for AI-driven maintenance

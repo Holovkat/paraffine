@@ -31,3 +31,18 @@ This repository is the tracked home for PARAFFINE planning and implementation wo
 - The standalone `affine-mcp-server` package is the write-capable path now configured for Codex
 - Final changes for this repository should be created in the governed worktree, not in the primary checkout
 - This folder can be used as the clean starting point for PARA note workflows and future PI wiring
+
+## PARAFFINE CLI Ownership
+
+- The canonical PARAFFINE workflow script is `scripts/paraffine-affine-inbox.js`
+- Pi extensions should call this repo-owned script path directly or via `PARAFFINE_CLI_PATH`
+- Scheduled maintenance jobs should use this same script path as the stable entrypoint
+- Do not treat temporary task worktrees as part of the supported runtime contract
+
+## Pi Runtime Contract
+
+- PARA owns the runtime contract docs and the AFFiNE-backed CLI
+- `pi-extensions` owns the dormant bridge in `extensions/paraffine.ts`
+- Preferred local model is `ollama/gemma4:26b`
+- Use `scripts/paraffine-pi-run.sh` for repeatable non-interactive Pi launch
+- Use `scripts/paraffine-pi-smoke.sh` for the scoped Sprint 2 smoke flow
