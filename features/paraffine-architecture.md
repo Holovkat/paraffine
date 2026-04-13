@@ -10,7 +10,7 @@
 ## Standards Gap
 
 - The detailed PARAFFINE note lifecycle, scoring model, and review cadence are defined in [paraffine-note-lifecycle.md](paraffine-note-lifecycle.md).
-- A repo-local AFFiNE CLI surface now exists in `scripts/paraffine-affine-inbox.js` for inbox capture, note reads, note updates, and PARA curation.
+- A repo-local AFFiNE CLI surface now exists in `scripts/paraffine-affine-inbox.js` for inbox capture, note reads, note updates, PARA curation, deterministic refinement, and archive review.
 - No background scheduling convention exists yet for Pi or cron-driven refinement and archive review.
 
 ## 1. Overview

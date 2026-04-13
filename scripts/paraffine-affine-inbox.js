@@ -242,20 +242,27 @@ function normalizeWhitespace(input) {
   return String(input || "").replace(/\r/g, "").trim();
 }
 
+function sanitizeSectionText(input) {
+  return String(input || "")
+    .replace(/^#{2,3}\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function sectionBetween(markdown, startHeading, endHeadings) {
   const text = String(markdown || "");
   const escapedStart = startHeading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const startRegex = new RegExp(`^#{1,2} ${escapedStart}\\s*$`, "m");
+  const startRegex = new RegExp(`^#{1,3} ${escapedStart}\\s*$`, "m");
   const startMatch = text.match(startRegex);
   if (!startMatch || startMatch.index == null) return "";
   const bodyStart = startMatch.index + startMatch[0].length;
   const body = text.slice(bodyStart).replace(/^\s+/, "");
   if (!endHeadings.length) return body.trim();
   const escapedEnds = endHeadings.map((heading) => heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const endRegex = new RegExp(`^## (?:${escapedEnds.join("|")})\\s*$`, "m");
+  const endRegex = new RegExp(`^#{2,3} (?:${escapedEnds.join("|")})\\s*$`, "m");
   const endMatch = body.match(endRegex);
   const sectionText = endMatch && endMatch.index != null ? body.slice(0, endMatch.index) : body;
-  return sectionText.trim();
+  return sanitizeSectionText(sectionText);
 }
 
 function extractMetadataLines(markdown, heading) {
@@ -275,9 +282,9 @@ function extractMetadataLines(markdown, heading) {
 
 function extractCaptureUpdates(markdown) {
   const sections = [];
-  const plural = sectionBetween(markdown, "Capture Updates", ["Working Notes", "Intake", "Curation", "Audit Trail"]);
+  const plural = sectionBetween(markdown, "Capture Updates", ["Working Notes", "Intake", "Curation", "Review State", "Audit Trail"]);
   if (plural) sections.push(plural);
-  const regex = /^## Capture Update [^\n]*\n([\s\S]*?)(?=^## |\Z)/gm;
+  const regex = /^#{2,3} Capture Update [^\n]*\n([\s\S]*?)(?=^#{2,3} |\Z)/gm;
   let match;
   while ((match = regex.exec(String(markdown || "")))) {
     sections.push(match[1].trim());
@@ -286,7 +293,9 @@ function extractCaptureUpdates(markdown) {
 }
 
 function extractRawCapture(markdown) {
-  return sectionBetween(markdown, "Raw Capture", ["Capture Updates", "Curation", "Audit Trail"]);
+  const sourceContext = sectionBetween(markdown, "Source Context", ["Capture Updates", "Review State", "Audit Trail"]);
+  if (sourceContext) return sourceContext;
+  return sectionBetween(markdown, "Raw Capture", ["Capture Updates", "Working Notes", "Intake", "Curation", "Audit Trail", "Review State"]);
 }
 
 function extractFieldsFromMarkdown(markdown) {
@@ -294,6 +303,7 @@ function extractFieldsFromMarkdown(markdown) {
     ...extractMetadataLines(markdown, "Inbox Capture"),
     ...extractMetadataLines(markdown, "Intake"),
     ...extractMetadataLines(markdown, "Curation"),
+    ...extractMetadataLines(markdown, "Review State"),
   };
 }
 
@@ -733,6 +743,7 @@ function reviewDueAtForStatus(status) {
   if (status === "canonical") now.setDate(now.getDate() + 30);
   else if (status === "archived") now.setDate(now.getDate() + 90);
   else if (status === "discarded") now.setFullYear(now.getFullYear() + 10);
+  else if (status === "refined") now.setDate(now.getDate() + 7);
   else now.setDate(now.getDate() + 7);
   return now.toISOString().replace(/\.\d+Z$/, "Z");
 }
@@ -764,6 +775,383 @@ async function moveDocToFolder(client, structure, docId, targetFolderId) {
       type: "doc",
     });
   }
+}
+
+function parseStoredScore(value, fallback = 0) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function buildDurableKnowledge(doc, curationFields) {
+  const lines = [
+    `- preferred_para_kind: ${curationFields.kind}`,
+    `- preferred_domain: ${curationFields.domain}`,
+    `- retrieval_status: ${curationFields.status}`,
+  ];
+  if (curationFields.canonical_ref) lines.push(`- canonical_ref: ${curationFields.canonical_ref}`);
+  if (curationFields.retained_reason) lines.push(`- retained_reason: ${curationFields.retained_reason}`);
+  return lines.join("\n");
+}
+
+function buildReuseGuidance(curationFields) {
+  if (curationFields.status === "canonical") {
+    return "Use this note as the preferred reference for future work. Link duplicate or derivative notes back here instead of keeping parallel copies.";
+  }
+  if (curationFields.status === "refined") {
+    return "Use this note as the cleaned working draft for future retrieval. Promote it to canonical only after confirming that the summary and retained guidance remain stable.";
+  }
+  if (curationFields.status === "archived") {
+    return "Keep this note for historical lookup only. Do not use it as the default retrieval surface unless it is explicitly reactivated.";
+  }
+  if (curationFields.status === "discarded") {
+    return "Do not surface this note in normal retrieval. Reopen it manually only if later evidence shows the discard decision was too aggressive.";
+  }
+  return "Keep this note available for follow-up review and refinement if it becomes more relevant.";
+}
+
+function buildRefinedMarkdown({ title, captureFields, rawText, updatesText, curationFields, auditBody }) {
+  const sections = [
+    `# ${title}`,
+    "",
+    "## Durable Summary",
+    "",
+    curationFields.summary || summarizeText(rawText),
+    "",
+    "## Durable Knowledge",
+    "",
+    buildDurableKnowledge({ title }, curationFields),
+    "",
+    "## Reuse Guidance",
+    "",
+    buildReuseGuidance(curationFields),
+    "",
+    "## Source Context",
+    "",
+    rawText.trim(),
+    "",
+  ];
+
+  if (updatesText && updatesText.trim()) {
+    sections.push("## Capture Updates", "", updatesText.trim(), "");
+  }
+
+  sections.push(
+    "## Review State",
+    "",
+    metadataLine("status", curationFields.status),
+    metadataLine("kind", curationFields.kind),
+    metadataLine("domain", curationFields.domain),
+    metadataLine("summary", curationFields.summary),
+    metadataLine("confidence", String(curationFields.confidence)),
+    metadataLine("confidence_band", curationFields.confidence_band),
+    metadataLine("complexity", String(curationFields.complexity)),
+    metadataLine("complexity_band", curationFields.complexity_band),
+    metadataLine("relevance", String(curationFields.relevance)),
+    metadataLine("relevance_band", curationFields.relevance_band),
+    metadataLine("duplication", String(curationFields.duplication)),
+    metadataLine("duplication_band", curationFields.duplication_band),
+    metadataLine("freshness", String(curationFields.freshness)),
+    metadataLine("freshness_band", curationFields.freshness_band),
+    metadataLine("review_due_at", curationFields.review_due_at),
+    metadataLine("last_reviewed_at", curationFields.last_reviewed_at),
+    metadataLine("retained_reason", curationFields.retained_reason || ""),
+    metadataLine("discard_reason", curationFields.discard_reason || ""),
+    metadataLine("canonical_ref", curationFields.canonical_ref || ""),
+    metadataLine("refined_at", curationFields.refined_at || ""),
+    metadataLine("archived_at", curationFields.archived_at || ""),
+    metadataLine("discarded_at", curationFields.discarded_at || ""),
+    "",
+    "## Intake",
+    "",
+    metadataLine("captured_at", captureFields.captured_at || ""),
+    metadataLine("source", captureFields.source || ""),
+    metadataLine("source_ref", captureFields.source_ref || ""),
+    metadataLine("domain_hint", captureFields.domain_hint || ""),
+    metadataLine("kind_hint", captureFields.kind_hint || ""),
+    "",
+    "## Audit Trail",
+    "",
+    auditBody.trim(),
+    "",
+  );
+
+  return sections.join("\n");
+}
+
+function qualifyForRefinement(curationFields) {
+  return curationFields.complexity >= 70 && curationFields.relevance >= 40 && curationFields.status !== "discarded";
+}
+
+function deriveRefinedStatus(curationFields) {
+  if (curationFields.confidence >= 70 && curationFields.duplication < 70 && curationFields.relevance >= 50) {
+    return "canonical";
+  }
+  return "refined";
+}
+
+function determineReviewAction(doc, curationFields) {
+  if (curationFields.status === "discarded") {
+    return { action: "skip", reason: "discarded notes require manual reopen" };
+  }
+  if (curationFields.relevance < 40 && curationFields.freshness < 40) {
+    if (curationFields.confidence < 40 && curationFields.duplication >= 70) {
+      return { action: "discard", reason: "low-confidence duplicate with low relevance" };
+    }
+    return { action: "archive", reason: "stale material retained for audit and future reference" };
+  }
+  if (curationFields.status === "archived" && curationFields.relevance >= 50) {
+    return { action: "reactivate", reason: "archived note regained relevance" };
+  }
+  if ((curationFields.status === "curated" || curationFields.status === "refined") && qualifyForRefinement(curationFields)) {
+    return { action: "refine", reason: "high-complexity note qualifies for durable synthesis" };
+  }
+  if (curationFields.status === "canonical" && curationFields.relevance < 40 && curationFields.freshness < 40) {
+    return { action: "archive", reason: "canonical note is no longer active enough for default retrieval" };
+  }
+  return { action: "retain", reason: "note remains in its current retained state" };
+}
+
+function buildReviewFields(doc) {
+  const fields = doc.fields;
+  const kind = normalizeKind(fields.kind || fields.kind_hint, doc.rawText);
+  const domain = normalizeDomain(fields.domain || fields.domain_hint, doc.rawText, fields.source);
+  const freshness = scoreFreshness(fields.captured_at, fields.last_reviewed_at);
+  return {
+    status: fields.status || "curated",
+    kind,
+    domain,
+    summary: fields.summary || summarizeText(doc.rawText),
+    confidence: parseStoredScore(fields.confidence, scoreConfidence(doc.rawText, fields.source, fields.source_ref)),
+    complexity: parseStoredScore(fields.complexity, scoreComplexity(doc.rawText, doc.updatesText)),
+    relevance: parseStoredScore(fields.relevance, scoreRelevance(kind, doc.rawText, freshness)),
+    duplication: parseStoredScore(fields.duplication, 18),
+    freshness: parseStoredScore(fields.freshness, freshness),
+    retained_reason: fields.retained_reason || "",
+    discard_reason: fields.discard_reason || "",
+    canonical_ref: fields.canonical_ref || "",
+    refined_at: fields.refined_at || "",
+    archived_at: fields.archived_at || "",
+    discarded_at: fields.discarded_at || "",
+    review_due_at: fields.review_due_at || reviewDueAtForStatus(fields.status || "curated"),
+    last_reviewed_at: fields.last_reviewed_at || fields.captured_at || nowStamp(),
+  };
+}
+
+function withBands(curationFields) {
+  return {
+    ...curationFields,
+    confidence_band: bandForScore(curationFields.confidence),
+    complexity_band: bandForScore(curationFields.complexity),
+    relevance_band: bandForScore(curationFields.relevance),
+    duplication_band: bandForScore(curationFields.duplication),
+    freshness_band: bandForScore(curationFields.freshness),
+  };
+}
+
+async function refineNote(client, args) {
+  const structure = await ensureInboxSurface(client);
+  const doc = await getNote(client, args);
+  requireCaptureFields(doc);
+  const current = withBands(buildReviewFields(doc));
+
+  if (!qualifyForRefinement(current) && current.status !== "refined") {
+    return {
+      action: "skipped",
+      reason: "note does not qualify for refinement",
+      doc,
+      curation: current,
+    };
+  }
+
+  const reviewedAt = nowStamp();
+  const nextStatus = deriveRefinedStatus(current);
+  const updated = withBands({
+    ...current,
+    status: nextStatus,
+    complexity: clampScore(Math.max(18, current.complexity - 35)),
+    confidence: clampScore(Math.min(100, current.confidence + 5)),
+    summary: summarizeText(`${doc.rawText} ${doc.updatesText}`),
+    refined_at: reviewedAt,
+    last_reviewed_at: reviewedAt,
+    review_due_at: reviewDueAtForStatus(nextStatus),
+    retained_reason:
+      nextStatus === "canonical"
+        ? "Refined into stable durable knowledge suitable for direct retrieval."
+        : "Refined into a cleaner durable-knowledge draft for future reuse.",
+    discard_reason: "",
+  });
+
+  const auditLines = [
+    `- action: refined`,
+    `- status: ${updated.status}`,
+    `- kind: ${updated.kind}`,
+    `- domain: ${updated.domain}`,
+    `- confidence: ${updated.confidence} (${updated.confidence_band})`,
+    `- complexity: ${updated.complexity} (${updated.complexity_band})`,
+    `- relevance: ${updated.relevance} (${updated.relevance_band})`,
+    `- duplication: ${updated.duplication} (${updated.duplication_band})`,
+    `- freshness: ${updated.freshness} (${updated.freshness_band})`,
+    `- retained_reason: ${updated.retained_reason}`,
+    `- fallback: deterministic`,
+  ];
+  const priorAudit = sectionBetween(doc.markdown, "Audit Trail", []);
+  const auditBody = [buildAuditEntry(auditLines), priorAudit].filter(Boolean).join("\n");
+  const markdown = buildRefinedMarkdown({
+    title: doc.title,
+    captureFields: doc.fields,
+    rawText: doc.rawText,
+    updatesText: doc.updatesText,
+    curationFields: updated,
+    auditBody,
+  });
+
+  await client.tool("replace_doc_with_markdown", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId: doc.docId,
+    markdown,
+  });
+
+  const targetFolderId = routeFolderId(structure, updated.kind, updated.status);
+  await moveDocToFolder(client, structure, doc.docId, targetFolderId);
+  return {
+    action: "refined",
+    deterministicFallback: true,
+    targetFolderId,
+    targetFolderName: structure.topFolders.find((folder) => folder.id === targetFolderId)?.name || null,
+    doc: await readDoc(client, doc.docId),
+  };
+}
+
+async function reviewNote(client, args) {
+  const structure = await ensureInboxSurface(client);
+  const doc = await getNote(client, args);
+  requireCaptureFields(doc);
+  const current = withBands(buildReviewFields(doc));
+  const decision = determineReviewAction(doc, current);
+
+  if (decision.action === "skip" || decision.action === "retain") {
+    return {
+      action: decision.action,
+      reason: decision.reason,
+      doc,
+      curation: current,
+    };
+  }
+
+  if (decision.action === "refine") {
+    return refineNote(client, { ...args, "doc-id": doc.docId });
+  }
+
+  const reviewedAt = nowStamp();
+  const nextStatus = decision.action === "archive" ? "archived" : decision.action === "discard" ? "discarded" : "curated";
+  const updated = withBands({
+    ...current,
+    status: nextStatus,
+    last_reviewed_at: reviewedAt,
+    review_due_at: reviewDueAtForStatus(nextStatus),
+    retained_reason: decision.action === "archive" || decision.action === "reactivate" ? decision.reason : "",
+    discard_reason: decision.action === "discard" ? decision.reason : "",
+    archived_at: decision.action === "archive" ? reviewedAt : current.archived_at,
+    discarded_at: decision.action === "discard" ? reviewedAt : current.discarded_at,
+  });
+
+  const auditLines = [
+    `- action: ${decision.action}`,
+    `- status: ${updated.status}`,
+    `- kind: ${updated.kind}`,
+    `- domain: ${updated.domain}`,
+    `- retained_reason: ${updated.retained_reason || ""}`,
+    `- discard_reason: ${updated.discard_reason || ""}`,
+    `- fallback: deterministic`,
+  ];
+  const priorAudit = sectionBetween(doc.markdown, "Audit Trail", []);
+  const auditBody = [buildAuditEntry(auditLines), priorAudit].filter(Boolean).join("\n");
+  const markdown =
+    updated.status === "curated" || updated.status === "canonical" || updated.status === "refined"
+      ? buildRefinedMarkdown({
+          title: doc.title,
+          captureFields: doc.fields,
+          rawText: doc.rawText,
+          updatesText: doc.updatesText,
+          curationFields: updated,
+          auditBody,
+        })
+      : buildCuratedMarkdown({
+          title: doc.title,
+          captureFields: {
+            ...doc.fields,
+            status: "inbox",
+          },
+          rawText: doc.rawText,
+          updatesText: doc.updatesText,
+          curationFields: updated,
+          auditBody,
+        });
+
+  await client.tool("replace_doc_with_markdown", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId: doc.docId,
+    markdown,
+  });
+
+  const targetFolderId = routeFolderId(structure, updated.kind, updated.status);
+  await moveDocToFolder(client, structure, doc.docId, targetFolderId);
+  return {
+    action: decision.action,
+    reason: decision.reason,
+    deterministicFallback: true,
+    targetFolderId,
+    targetFolderName: structure.topFolders.find((folder) => folder.id === targetFolderId)?.name || null,
+    doc: await readDoc(client, doc.docId),
+  };
+}
+
+async function reviewQueue(client, args) {
+  let docs;
+  if (args.query) {
+    const searchResult = await client.tool("search_docs", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      query: String(args.query),
+      matchMode: "substring",
+      limit: Number.parseInt(String(args.limit || "20"), 10),
+    });
+    docs = asArray(searchResult, "docs", "results");
+  } else {
+    const listResult = await client.tool("list_docs", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      first: Number.parseInt(String(args.limit || "50"), 10),
+    });
+    docs = asArray(listResult, "docs").length
+      ? asArray(listResult, "docs")
+      : asArray(listResult, "edges").map((edge) => edge.node).filter(Boolean);
+  }
+  const statuses = String(args.statuses || "curated,refined,canonical,archived")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const results = [];
+
+  for (const entry of docs) {
+    const docId = entry.id || entry.docId;
+    if (!docId) continue;
+    const doc = await readDoc(client, docId);
+    if (!doc.fields.status || !statuses.includes(doc.fields.status)) continue;
+    const result = await reviewNote(client, { "doc-id": docId });
+    results.push({
+      docId,
+      title: doc.title,
+      action: result.action,
+      reason: result.reason || null,
+      targetFolderName: result.targetFolderName || null,
+    });
+  }
+
+  return {
+    action: "reviewed",
+    count: results.length,
+    deterministicFallback: true,
+    results,
+  };
 }
 
 function decideOutcome({ kind, scores, duplicateDocs }) {
@@ -973,7 +1361,7 @@ async function main() {
   const env = loadAffineEnv();
   ensureAffineEnv(env);
   if (!command) {
-    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, or curate-note.");
+    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, curate-note, refine-note, review-note, or review-queue.");
   }
 
   const client = new McpClient(env);
@@ -1011,6 +1399,21 @@ async function main() {
     }
     if (command === "curate-note") {
       const result = await curateNote(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "refine-note") {
+      const result = await refineNote(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "review-note") {
+      const result = await reviewNote(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "review-queue") {
+      const result = await reviewQueue(client, args);
       console.log(JSON.stringify(result, null, 2));
       return;
     }
