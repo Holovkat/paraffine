@@ -485,6 +485,8 @@ async function ensureParaffineTemplate(client, args = {}) {
       action: "existing",
       templateDocId: existing.docId,
       title,
+      uiTemplateRegistrationRequired: true,
+      note: "Turn on the Template property in AFFiNE once if you want this doc to appear in the UI template menu.",
     };
   }
 
@@ -507,6 +509,8 @@ async function ensureParaffineTemplate(client, args = {}) {
     action: "created",
     templateDocId: docId,
     title,
+    uiTemplateRegistrationRequired: true,
+    note: "Turn on the Template property in AFFiNE once if you want this doc to appear in the UI template menu.",
   };
 }
 
@@ -620,12 +624,14 @@ async function createNoteFromTemplate(client, args) {
   }
 
   const docId = created.docId || created.id;
-  await addDocToNamedFolder(client, structure, docId, args.folder || "Inbox");
+  if (args.folder) {
+    await addDocToNamedFolder(client, structure, docId, args.folder);
+  }
   const doc = await readDoc(client, docId);
   return {
     action: "instantiated",
     templateDocId,
-    folder: args.folder || "Inbox",
+    folder: args.folder || null,
     doc,
   };
 }
