@@ -54,7 +54,7 @@ PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
 pi -p \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
-  --model ollama/gemma4:26b \
+  --model ollama/gemma4:e2b \
   "/paraffine-cycle --query Inbox --limit 10"
 ```
 
@@ -135,6 +135,8 @@ The fallback path must:
 - preserve auditability
 - keep note state consistent
 - record deterministic fallback where the workflow already supports it
+- preserve knowledge packs instead of flattening them
+- route malformed or contradictory notes into `Inbox/Quarantine`
 
 For explicit fallback verification, operators may run the underlying CLI
 directly:

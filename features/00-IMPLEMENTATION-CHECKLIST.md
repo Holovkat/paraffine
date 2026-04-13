@@ -37,3 +37,19 @@ Check off items here as the final sign-off that work is complete.
 
 ### Phase 3: Verification
 - [x] [GitHub issue #19](https://github.com/Holovkat/paraffine/issues/19) - Add end-to-end smoke fixtures and verification for AI-driven maintenance
+
+---
+
+## Sprint 3: Pack-Aware Inbox and Quarantine Bugfix
+**Goal**: Fix inbox maintenance so related knowledge packs are preserved as grouped structures, ambiguous material is quarantined safely, and the Pi guidance matches the intended PARAFFINE operating model.
+**Epic**: [GitHub issue #20](https://github.com/Holovkat/paraffine/issues/20)
+
+### Phase 1: Placement and Safety
+- [x] [GitHub issue #21](https://github.com/Holovkat/paraffine/issues/21) - Implement pack-aware inbox grouping and placement
+- [x] [GitHub issue #22](https://github.com/Holovkat/paraffine/issues/22) - Add `Inbox/Quarantine` routing for ambiguous or conflicting notes
+
+### Phase 2: Pi Contract
+- [x] [GitHub issue #23](https://github.com/Holovkat/paraffine/issues/23) - Define and wire the Pi curation prompt and decision contract
+
+### Phase 3: Verification
+- [x] [GitHub issue #24](https://github.com/Holovkat/paraffine/issues/24) - Add grouped-pack and quarantine regression verification

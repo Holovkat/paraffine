@@ -2,11 +2,14 @@
 
 ## Purpose
 
-This runbook records the repeatable smoke flow for Sprint 2 runtime validation.
+This runbook records the repeatable smoke flow for Sprint 2 runtime validation
+and the Sprint 3 pack-aware inbox regression checks.
 
 It proves:
 
 - the Pi runtime boundary launches cleanly with the dormant `paraffine` bridge
+- the preferred local model reference is `ollama/gemma4:e2b`
+- malformed or contradictory notes can fall into `Inbox/Quarantine`
 - scoped PARAFFINE maintenance can be triggered through Pi
 - retrieval can confirm the resulting AFFiNE state
 - deterministic fallback remains runnable when the model path is skipped
@@ -47,6 +50,9 @@ The helper performs:
 - retrieval returns the updated note state
 - the direct CLI fallback run succeeds for the same scope
 - no unrelated workspace notes are touched
+- grouped reference notes stay together under a shared PARA pack folder instead
+  of being flattened
+- malformed notes fall into `Inbox/Quarantine`
 
 ## Cleanup Rule
 

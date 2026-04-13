@@ -35,6 +35,6 @@ This workspace was created as a separate project folder for AFFiNE-backed notes 
 
 - PARA owns the runtime contract docs and the AFFiNE-backed CLI
 - `pi-extensions` owns the dormant bridge in `extensions/paraffine.ts`
-- Preferred local model is `ollama/gemma4:26b`
+- Preferred local model is `ollama/gemma4:e2b`
 - Use `scripts/paraffine-pi-run.sh` for repeatable non-interactive Pi launch
 - Use `scripts/paraffine-pi-smoke.sh` for the scoped Sprint 2 smoke flow
