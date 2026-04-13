@@ -23,3 +23,10 @@ This workspace was created as a separate project folder for AFFiNE-backed notes 
 - The hosted AFFiNE workspace MCP endpoint exposed only read/search tools
 - The standalone `affine-mcp-server` package is the write-capable path now configured for Codex
 - This folder can be used as the clean starting point for PARA note workflows and future PI wiring
+
+## PARAFFINE CLI Ownership
+
+- The canonical PARAFFINE workflow script is `scripts/paraffine-affine-inbox.js`
+- Pi extensions should call this repo-owned script path directly or via `PARAFFINE_CLI_PATH`
+- Scheduled maintenance jobs should use this same script path as the stable entrypoint
+- Do not treat temporary task worktrees as part of the supported runtime contract

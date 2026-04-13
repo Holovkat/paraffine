@@ -26,6 +26,26 @@ The working model for PARAFFINE is:
 
 AFFiNE is the source of truth for stored knowledge. Pi extensions, skills, and scheduled jobs are intended to provide the AI-assisted curation and refinement layer.
 
+## Runtime Surface
+
+The canonical PARAFFINE CLI now lives in this repository:
+
+- `scripts/paraffine-affine-inbox.js`
+
+This script is the stable runtime entrypoint for:
+
+- direct operator use from the PARA checkout
+- Pi extension bridging with `-e`
+- cron or other scheduled maintenance runs
+
+Pi and cron should target this repo-owned path instead of any temporary task worktree location.
+
+Example local invocation:
+
+```bash
+node scripts/paraffine-affine-inbox.js retrieve-notes --query "PARA" --limit 5
+```
+
 ## Inspirations and Attribution
 
 This project builds on and is inspired by:
