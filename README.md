@@ -51,6 +51,7 @@ The current MVP direction is:
 - [Workspace guidance](AGENTS.md)
 - [Architecture and standards](features/paraffine-architecture.md)
 - [Implementation checklist](features/00-IMPLEMENTATION-CHECKLIST.md)
+- [Seed reference docs](features/reference-seed-docs.md)
 
 ## Repository Status
 
