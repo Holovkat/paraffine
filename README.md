@@ -52,10 +52,32 @@ The current repo-owned standards surface is:
 
 - `features/paraffine-ai-curation-contract.md`
 - `features/paraffine-architecture.md`
+- `features/paraffine-pi-runtime-contract.md`
+- `features/paraffine-cron-runbook.md`
+- `features/paraffine-ai-maintenance-verification.md`
 
 These documents define the allowed AI maintenance actions, deterministic
 fallback rules, and the architecture boundary between PARAFFINE, AFFiNE, Pi,
 and cron.
+
+## Pi Runtime
+
+Recommended Pi launch:
+
+```bash
+PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
+pi -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
+   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
+   --model ollama/gemma4:26b
+```
+
+Convenience wrappers in this repo:
+
+- `scripts/paraffine-pi-run.sh`
+- `scripts/paraffine-pi-smoke.sh`
+
+Use the run wrapper for cron/non-interactive launch and the smoke helper for a
+scoped runtime verification pass.
 
 ## Inspirations and Attribution
 

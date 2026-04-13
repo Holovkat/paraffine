@@ -30,3 +30,11 @@ This workspace was created as a separate project folder for AFFiNE-backed notes 
 - Pi extensions should call this repo-owned script path directly or via `PARAFFINE_CLI_PATH`
 - Scheduled maintenance jobs should use this same script path as the stable entrypoint
 - Do not treat temporary task worktrees as part of the supported runtime contract
+
+## Pi Runtime Contract
+
+- PARA owns the runtime contract docs and the AFFiNE-backed CLI
+- `pi-extensions` owns the dormant bridge in `extensions/paraffine.ts`
+- Preferred local model is `ollama/gemma4:26b`
+- Use `scripts/paraffine-pi-run.sh` for repeatable non-interactive Pi launch
+- Use `scripts/paraffine-pi-smoke.sh` for the scoped Sprint 2 smoke flow

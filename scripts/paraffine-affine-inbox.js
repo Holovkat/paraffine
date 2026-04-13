@@ -117,17 +117,55 @@ class McpClient {
   }
 
   async tool(name, args) {
-    const response = await this.request("tools/call", { name, arguments: args || {} });
-    if (response.result?.isError) {
-      const text = response.result?.content?.map((item) => item.text).join("\n") || `Tool call failed: ${name}`;
-      throw new Error(text);
+    const attempts = shouldRetryTool(name) ? 3 : 1;
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await this.request("tools/call", { name, arguments: args || {} });
+        if (response.result?.isError) {
+          const text = response.result?.content?.map((item) => item.text).join("\n") || `Tool call failed: ${name}`;
+          if (attempt < attempts && isTransientToolError(text)) {
+            await sleep(1000 * attempt);
+            continue;
+          }
+          throw new Error(text);
+        }
+        return response.result?.structuredContent || response.result;
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts && isTransientToolError(error?.message || String(error))) {
+          await sleep(1000 * attempt);
+          continue;
+        }
+        throw error;
+      }
     }
-    return response.result?.structuredContent || response.result;
+    throw lastError || new Error(`Tool call failed: ${name}`);
   }
 
   async stop() {
     if (this.proc) this.proc.kill("SIGTERM");
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryTool(name) {
+  return [
+    "read_doc",
+    "search_docs",
+    "list_docs",
+    "list_organize_nodes",
+    "get_doc",
+    "get_doc_by_title",
+  ].includes(name);
+}
+
+function isTransientToolError(message) {
+  const text = String(message || "").toLowerCase();
+  return text.includes("timeout") || text.includes("socket connect");
 }
 
 function ensureAffineEnv(env) {
@@ -1180,6 +1218,63 @@ async function listDocsForQuery(client, args) {
     : asArray(listResult, "edges").map((edge) => edge.node).filter(Boolean);
 }
 
+async function deleteNotes(client, args) {
+  const docs = await listDocsForQuery(client, args);
+  const titles = parseStatusList(args.titles, "");
+  const requirePrefix = args.prefix ? String(args.prefix) : "";
+  const exactQuery = args.exact ? String(args.exact) : "";
+  const deleted = [];
+  const skipped = [];
+
+  const organize = await client.tool("list_organize_nodes", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+  });
+  const organizeNodes = asArray(organize, "nodes");
+
+  for (const entry of docs) {
+    const docId = entry.id || entry.docId;
+    const title = entry.title || "";
+    if (!docId) continue;
+
+    if (exactQuery && title !== exactQuery) {
+      skipped.push({ docId, title, reason: "exact-mismatch" });
+      continue;
+    }
+    if (requirePrefix && !title.startsWith(requirePrefix)) {
+      skipped.push({ docId, title, reason: "prefix-mismatch" });
+      continue;
+    }
+    if (titles.length && !titles.includes(title)) {
+      skipped.push({ docId, title, reason: "title-filter" });
+      continue;
+    }
+
+    const linkedNodes = organizeNodes.filter((node) => node.type === "doc" && node.data === docId);
+    for (const node of linkedNodes) {
+      await client.tool("delete_organize_link", {
+        workspaceId: client.env.AFFINE_WORKSPACE_ID,
+        nodeId: node.id,
+      });
+    }
+    await client.tool("delete_doc", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      docId,
+    });
+    deleted.push({ docId, title, removedLinks: linkedNodes.length });
+  }
+
+  return {
+    action: "deleted",
+    query: args.query || null,
+    prefix: requirePrefix || null,
+    exact: exactQuery || null,
+    deletedCount: deleted.length,
+    skippedCount: skipped.length,
+    deleted,
+    skipped,
+  };
+}
+
 async function retrieveNotes(client, args) {
   const statuses = parseStatusList(args.statuses, "curated,canonical,refined");
   const docs = await listDocsForQuery(client, args);
@@ -1477,7 +1572,7 @@ async function main() {
   const env = loadAffineEnv();
   ensureAffineEnv(env);
   if (!command) {
-    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, curate-note, refine-note, review-note, review-queue, retrieve-notes, or run-cycle.");
+    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, curate-note, refine-note, review-note, review-queue, retrieve-notes, delete-notes, or run-cycle.");
   }
 
   const client = new McpClient(env);
@@ -1535,6 +1630,11 @@ async function main() {
     }
     if (command === "retrieve-notes") {
       const result = await retrieveNotes(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "delete-notes") {
+      const result = await deleteNotes(client, args);
       console.log(JSON.stringify(result, null, 2));
       return;
     }
