@@ -216,6 +216,15 @@ function paraffineTemplateMarkdown() {
     "",
     "{{working_notes}}",
     "",
+    "## Intake",
+    "",
+    "- status: {{status}}",
+    "- captured_at: {{captured_at}}",
+    "- source: {{source}}",
+    "- source_ref: {{source_ref}}",
+    "- domain_hint: {{domain_hint}}",
+    "- kind_hint: {{kind_hint}}",
+    "",
   ].join("\n");
 }
 
@@ -266,7 +275,7 @@ function extractMetadataLines(markdown, heading) {
 
 function extractCaptureUpdates(markdown) {
   const sections = [];
-  const plural = sectionBetween(markdown, "Capture Updates", ["Curation", "Audit Trail"]);
+  const plural = sectionBetween(markdown, "Capture Updates", ["Working Notes", "Intake", "Curation", "Audit Trail"]);
   if (plural) sections.push(plural);
   const regex = /^## Capture Update [^\n]*\n([\s\S]*?)(?=^## |\Z)/gm;
   let match;
@@ -283,6 +292,7 @@ function extractRawCapture(markdown) {
 function extractFieldsFromMarkdown(markdown) {
   return {
     ...extractMetadataLines(markdown, "Inbox Capture"),
+    ...extractMetadataLines(markdown, "Intake"),
     ...extractMetadataLines(markdown, "Curation"),
   };
 }
@@ -404,14 +414,11 @@ function buildAuditEntry(lines) {
 
 function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, curationFields, auditBody }) {
   const captureSection = [
-    "# Inbox Capture",
+    `# ${title}`,
     "",
-    metadataLine("status", captureFields.status || "inbox"),
-    metadataLine("captured_at", captureFields.captured_at || ""),
-    metadataLine("source", captureFields.source || ""),
-    metadataLine("source_ref", captureFields.source_ref || ""),
-    metadataLine("domain_hint", captureFields.domain_hint || ""),
-    metadataLine("kind_hint", captureFields.kind_hint || ""),
+    "## Summary",
+    "",
+    curationFields.summary || summarizeText(rawText),
     "",
     "## Raw Capture",
     "",
@@ -422,6 +429,21 @@ function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, cura
   if (updatesText && updatesText.trim()) {
     captureSection.push("## Capture Updates", "", updatesText.trim(), "");
   }
+
+  captureSection.push(
+    "## Working Notes",
+    "",
+    "",
+    "## Intake",
+    "",
+    metadataLine("status", captureFields.status || "inbox"),
+    metadataLine("captured_at", captureFields.captured_at || ""),
+    metadataLine("source", captureFields.source || ""),
+    metadataLine("source_ref", captureFields.source_ref || ""),
+    metadataLine("domain_hint", captureFields.domain_hint || ""),
+    metadataLine("kind_hint", captureFields.kind_hint || ""),
+    "",
+  );
 
   const curationSection = [
     "## Curation",
@@ -481,6 +503,14 @@ async function ensureParaffineTemplate(client, args = {}) {
   const title = templateTitle(args);
   const existing = await searchDocByTitle(client, title);
   if (existing?.docId) {
+    const existingDoc = await readDoc(client, existing.docId);
+    if (!existingDoc.markdown.includes("## Intake")) {
+      await client.tool("replace_doc_with_markdown", {
+        workspaceId: client.env.AFFINE_WORKSPACE_ID,
+        docId: existing.docId,
+        markdown: paraffineTemplateMarkdown(),
+      });
+    }
     return {
       action: "existing",
       templateDocId: existing.docId,
@@ -568,12 +598,19 @@ async function createInboxDoc(client, title, markdown, inboxFolderId) {
 }
 
 function templateVariables(args) {
+  const capturedAt = args["captured-at"] || nowStamp();
   return {
     note_heading: args["note-heading"] || args.title || "PARAFFINE Note",
-    summary: args.summary || "Write the short human-readable summary here.",
+    summary: args.summary || args.body || "Write the short human-readable summary here.",
     raw_capture: args["raw-capture"] || args.body || "",
     capture_updates: args["capture-updates"] || "",
     working_notes: args["working-notes"] || "",
+    status: args.status || "inbox",
+    captured_at: capturedAt,
+    source: args.source || "unknown",
+    source_ref: args["source-ref"] || "",
+    domain_hint: args["domain-hint"] || "",
+    kind_hint: args["kind-hint"] || "",
   };
 }
 
@@ -896,7 +933,17 @@ async function captureNote(client, args) {
     return { action: "appended", title, ...structure, doc };
   }
 
-  const docId = await createInboxDoc(client, title, captureMarkdown(args), structure.inboxFolderId);
+  const created = await createNoteFromTemplate(client, {
+    ...args,
+    title,
+    folder: "Inbox",
+    summary: args.summary || args.body,
+    "raw-capture": args.body,
+    "capture-updates": args["capture-updates"] || "",
+    "working-notes": args["working-notes"] || "",
+    status: "inbox",
+  });
+  const docId = created.doc.docId;
   const doc = await readDoc(client, docId);
   return { action: "created", title, ...structure, doc };
 }
