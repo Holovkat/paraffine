@@ -7,7 +7,7 @@ PARAFFINE is an open-source knowledge workflow built around the PARA method, usi
 This project explores a structured note system that:
 
 - captures raw information into an inbox
-- curates that information into PARA destinations: Projects, Areas, Resources, and Archives
+- curates that information into PARA destinations: `Projects`, `Areas`, `Resources`, and `Archives`
 - refines selected notes into cleaner durable knowledge
 - periodically reviews, archives, or discards lower-value information
 - makes curated project memory retrievable by agents through the existing MCP-backed AFFiNE integration
@@ -45,6 +45,14 @@ The current MVP direction is:
 - apply PARA classification rules during curation
 - use scheduled refinement passes to turn messy notes into more useful durable knowledge
 - keep archive and discard decisions explicit so the system does not accumulate unchecked noise
+
+## Project Docs
+
+- [Workspace guidance](AGENTS.md)
+- [Architecture and standards](features/paraffine-architecture.md)
+- [Runtime and orchestration](features/paraffine-runtime-orchestration.md)
+- [Implementation checklist](features/00-IMPLEMENTATION-CHECKLIST.md)
+- [Seed reference docs](features/reference-seed-docs.md)
 
 ## Repository Status
 

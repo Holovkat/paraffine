@@ -1,6 +1,13 @@
-# PARA
+# PARAFFINE
 
-This workspace was created as a separate project folder for AFFiNE-backed notes work.
+This repository is the tracked home for PARAFFINE planning and implementation work.
+
+## Repository Layout
+
+- `README.md` explains the project purpose, scope, and attribution.
+- `features/paraffine-architecture.md` is the architecture and standards reference for the MVP workflow.
+- `features/paraffine-runtime-orchestration.md` is the runtime contract for retrieval and scheduled PARAFFINE runs.
+- `features/00-IMPLEMENTATION-CHECKLIST.md` is the local sprint checklist and final sign-off ledger.
 
 ## Affine MCP Status
 
@@ -22,4 +29,5 @@ This workspace was created as a separate project folder for AFFiNE-backed notes 
 
 - The hosted AFFiNE workspace MCP endpoint exposed only read/search tools
 - The standalone `affine-mcp-server` package is the write-capable path now configured for Codex
+- Final changes for this repository should be created in the governed worktree, not in the primary checkout
 - This folder can be used as the clean starting point for PARA note workflows and future PI wiring
