@@ -46,6 +46,17 @@ Example local invocation:
 node scripts/paraffine-affine-inbox.js retrieve-notes --query "PARA" --limit 5
 ```
 
+## Core Specs
+
+The current repo-owned standards surface is:
+
+- `features/paraffine-ai-curation-contract.md`
+- `features/paraffine-architecture.md`
+
+These documents define the allowed AI maintenance actions, deterministic
+fallback rules, and the architecture boundary between PARAFFINE, AFFiNE, Pi,
+and cron.
+
 ## Inspirations and Attribution
 
 This project builds on and is inspired by:
