@@ -55,6 +55,19 @@ flowchart TD
 
 The MVP should keep a single shared PARA model. It should not split software, business, and personal into separate systems unless scale proves that the shared model is failing.
 
+## Inbox Surface Assumption
+
+The AFFiNE sidebar currently exposes `Inbox`, `Projects`, `Areas`, `Resources`, and `Archive` as organize folders, while the writable doc API still exposes a separate `PARA` doc tree.
+
+That means the inbox adapter must:
+
+- treat the doc API as the writable source of record
+- resolve the `Inbox` organize folder separately
+- create writable docs for inbox captures
+- link those docs into the `Inbox` folder instead of assuming `Inbox` is itself a writable doc
+
+The adapter should tolerate naming drift between the organize tree (`Archive`) and the doc tree (`Archives`) and document that difference instead of trying to rename live workspace structures during the MVP.
+
 ## 4. Note Lifecycle Reference
 
 The durable note lifecycle, scoring model, capture-time versus curation-time metadata, and review cadence live in [paraffine-note-lifecycle.md](paraffine-note-lifecycle.md).
