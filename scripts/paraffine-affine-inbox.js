@@ -5,6 +5,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
+const DEFAULT_TEMPLATE_TITLE = "PARAFFINE Note Template";
+
 function parseArgs(argv) {
   const args = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
@@ -165,6 +167,10 @@ function captureTitle(args) {
   return `Inbox ${nowStamp()}`;
 }
 
+function templateTitle(args) {
+  return String(args["template-title"] || DEFAULT_TEMPLATE_TITLE).trim();
+}
+
 function metadataLine(key, value) {
   return value ? `- ${key}: ${value}` : `- ${key}:`;
 }
@@ -188,6 +194,29 @@ function captureMarkdown(args) {
     "",
   ];
   return lines.join("\n");
+}
+
+function paraffineTemplateMarkdown() {
+  return [
+    "# {{note_heading}}",
+    "",
+    "## Summary",
+    "",
+    "{{summary}}",
+    "",
+    "## Raw Capture",
+    "",
+    "{{raw_capture}}",
+    "",
+    "## Capture Updates",
+    "",
+    "{{capture_updates}}",
+    "",
+    "## Working Notes",
+    "",
+    "{{working_notes}}",
+    "",
+  ].join("\n");
 }
 
 function bandForScore(score) {
@@ -448,6 +477,39 @@ async function searchDocByTitle(client, title) {
   return docs.find((doc) => doc.title === title) || null;
 }
 
+async function ensureParaffineTemplate(client, args = {}) {
+  const title = templateTitle(args);
+  const existing = await searchDocByTitle(client, title);
+  if (existing?.docId) {
+    return {
+      action: "existing",
+      templateDocId: existing.docId,
+      title,
+    };
+  }
+
+  const structure = await ensureInboxSurface(client);
+  const created = await client.tool("create_doc", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    title,
+    content: paraffineTemplateMarkdown(),
+  });
+  const docId = created.docId || created.id;
+  if (structure.resourcesFolderId) {
+    await client.tool("add_organize_link", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      folderId: structure.resourcesFolderId,
+      targetId: docId,
+      type: "doc",
+    });
+  }
+  return {
+    action: "created",
+    templateDocId: docId,
+    title,
+  };
+}
+
 async function getParaStructure(client) {
   const paraDoc = await searchDocByTitle(client, "PARA");
   const organize = await client.tool("list_organize_nodes", {
@@ -499,6 +561,73 @@ async function createInboxDoc(client, title, markdown, inboxFolderId) {
     type: "doc",
   });
   return docId;
+}
+
+function templateVariables(args) {
+  return {
+    note_heading: args["note-heading"] || args.title || "PARAFFINE Note",
+    summary: args.summary || "Write the short human-readable summary here.",
+    raw_capture: args["raw-capture"] || args.body || "",
+    capture_updates: args["capture-updates"] || "",
+    working_notes: args["working-notes"] || "",
+  };
+}
+
+async function addDocToNamedFolder(client, structure, docId, folderName) {
+  if (!folderName) return;
+  const normalized = String(folderName).toLowerCase();
+  const folderId =
+    (normalized === "inbox" && structure.inboxFolderId) ||
+    (normalized === "projects" && structure.projectsFolderId) ||
+    (normalized === "areas" && structure.areasFolderId) ||
+    (normalized === "resources" && structure.resourcesFolderId) ||
+    ((normalized === "archive" || normalized === "archives") && structure.archivesFolderId);
+  if (!folderId) {
+    throw new Error(`Unknown or unavailable folder: ${folderName}`);
+  }
+  await client.tool("add_organize_link", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    folderId,
+    targetId: docId,
+    type: "doc",
+  });
+}
+
+async function createNoteFromTemplate(client, args) {
+  if (!args.title) throw new Error("--title is required");
+  const structure = await ensureInboxSurface(client);
+  const ensured = await ensureParaffineTemplate(client, args);
+  const templateDocId = ensured.templateDocId;
+  const variables = templateVariables(args);
+
+  let created;
+  try {
+    created = await client.tool("instantiate_template_native", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      templateDocId,
+      title: args.title,
+      variables,
+      allowFallback: true,
+      preserveTags: true,
+    });
+  } catch (_error) {
+    created = await client.tool("create_doc_from_template", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      templateDocId,
+      title: args.title,
+      variables,
+    });
+  }
+
+  const docId = created.docId || created.id;
+  await addDocToNamedFolder(client, structure, docId, args.folder || "Inbox");
+  const doc = await readDoc(client, docId);
+  return {
+    action: "instantiated",
+    templateDocId,
+    folder: args.folder || "Inbox",
+    doc,
+  };
 }
 
 async function readDoc(client, docId) {
@@ -791,7 +920,7 @@ async function main() {
   const env = loadAffineEnv();
   ensureAffineEnv(env);
   if (!command) {
-    throw new Error("Expected a command: inspect-structure, capture-note, get-note, append-note, or curate-note.");
+    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, or curate-note.");
   }
 
   const client = new McpClient(env);
@@ -800,6 +929,16 @@ async function main() {
     if (command === "inspect-structure") {
       const structure = await getParaStructure(client);
       console.log(JSON.stringify(structure, null, 2));
+      return;
+    }
+    if (command === "ensure-template") {
+      const result = await ensureParaffineTemplate(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "create-note-from-template") {
+      const result = await createNoteFromTemplate(client, args);
+      console.log(JSON.stringify(result, null, 2));
       return;
     }
     if (command === "capture-note") {
