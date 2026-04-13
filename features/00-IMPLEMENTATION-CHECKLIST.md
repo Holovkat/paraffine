@@ -10,12 +10,12 @@ Check off items here as the final sign-off that work is complete.
 **Epic**: [GitHub issue #7](https://github.com/Holovkat/paraffine/issues/7)
 
 ### Phase 1: Foundation
-- [ ] [GitHub issue #8](https://github.com/Holovkat/paraffine/issues/8) - Repository bootstrap and architecture framing
-- [ ] [GitHub issue #9](https://github.com/Holovkat/paraffine/issues/9) - Define PARAFFINE note lifecycle and scoring model
-- [ ] [GitHub issue #10](https://github.com/Holovkat/paraffine/issues/10) - Build AFFiNE inbox adapter and intake contract
+- [x] [GitHub issue #8](https://github.com/Holovkat/paraffine/issues/8) - Repository bootstrap and architecture framing
+- [x] [GitHub issue #9](https://github.com/Holovkat/paraffine/issues/9) - Define PARAFFINE note lifecycle and scoring model
+- [x] [GitHub issue #10](https://github.com/Holovkat/paraffine/issues/10) - Build AFFiNE inbox adapter and intake contract
 
 ### Phase 2: Core Workflow
-- [ ] [GitHub issue #11](https://github.com/Holovkat/paraffine/issues/11) - Implement PARA curation workflow
+- [x] [GitHub issue #11](https://github.com/Holovkat/paraffine/issues/11) - Implement PARA curation workflow
 - [ ] [GitHub issue #12](https://github.com/Holovkat/paraffine/issues/12) - Implement refinement and archive review workflow
 
 ### Phase 3: Integration

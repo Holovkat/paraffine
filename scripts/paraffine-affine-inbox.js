@@ -190,20 +190,251 @@ function captureMarkdown(args) {
   return lines.join("\n");
 }
 
-function appendMarkdown(body) {
-  const createdAt = nowStamp();
-  return `\n## Capture Update ${createdAt}\n\n${body.trim()}\n`;
+function bandForScore(score) {
+  if (score >= 70) return "high";
+  if (score >= 40) return "medium";
+  return "low";
+}
+
+function clampScore(score) {
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function normalizeWhitespace(input) {
+  return String(input || "").replace(/\r/g, "").trim();
+}
+
+function sectionBetween(markdown, startHeading, endHeadings) {
+  const text = String(markdown || "");
+  const escapedStart = startHeading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const startRegex = new RegExp(`^#{1,2} ${escapedStart}\\s*$`, "m");
+  const startMatch = text.match(startRegex);
+  if (!startMatch || startMatch.index == null) return "";
+  const bodyStart = startMatch.index + startMatch[0].length;
+  const body = text.slice(bodyStart).replace(/^\s+/, "");
+  if (!endHeadings.length) return body.trim();
+  const escapedEnds = endHeadings.map((heading) => heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const endRegex = new RegExp(`^## (?:${escapedEnds.join("|")})\\s*$`, "m");
+  const endMatch = body.match(endRegex);
+  const sectionText = endMatch && endMatch.index != null ? body.slice(0, endMatch.index) : body;
+  return sectionText.trim();
+}
+
+function extractMetadataLines(markdown, heading) {
+  const body = sectionBetween(markdown, heading, [
+    "Raw Capture",
+    "Capture Updates",
+    "Curation",
+    "Audit Trail",
+  ]);
+  const fields = {};
+  for (const line of body.split(/\r?\n/)) {
+    const match = line.match(/^- ([a-z_]+):\s*(.*)$/);
+    if (match) fields[match[1]] = match[2];
+  }
+  return fields;
+}
+
+function extractCaptureUpdates(markdown) {
+  const sections = [];
+  const plural = sectionBetween(markdown, "Capture Updates", ["Curation", "Audit Trail"]);
+  if (plural) sections.push(plural);
+  const regex = /^## Capture Update [^\n]*\n([\s\S]*?)(?=^## |\Z)/gm;
+  let match;
+  while ((match = regex.exec(String(markdown || "")))) {
+    sections.push(match[1].trim());
+  }
+  return sections.filter(Boolean).join("\n\n");
+}
+
+function extractRawCapture(markdown) {
+  return sectionBetween(markdown, "Raw Capture", ["Capture Updates", "Curation", "Audit Trail"]);
 }
 
 function extractFieldsFromMarkdown(markdown) {
-  const fields = {};
-  const match = markdown.match(/# Inbox Capture\s+([\s\S]*?)## Raw Capture/);
-  const region = match ? match[1] : markdown;
-  for (const line of region.split(/\r?\n/)) {
-    const m = line.match(/^- ([a-z_]+):\s*(.*)$/);
-    if (m) fields[m[1]] = m[2];
+  return {
+    ...extractMetadataLines(markdown, "Inbox Capture"),
+    ...extractMetadataLines(markdown, "Curation"),
+  };
+}
+
+function summarizeText(rawText, maxLen = 220) {
+  const compact = normalizeWhitespace(rawText).replace(/\s+/g, " ");
+  if (compact.length <= maxLen) return compact;
+  return `${compact.slice(0, maxLen - 3).trimEnd()}...`;
+}
+
+function countKeywordHits(text, words) {
+  let hits = 0;
+  for (const word of words) {
+    const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+    const matches = text.match(regex);
+    hits += matches ? matches.length : 0;
   }
-  return fields;
+  return hits;
+}
+
+function normalizeKind(input, rawText = "") {
+  const value = String(input || "").toLowerCase();
+  const text = String(rawText || "").toLowerCase();
+  if (value.includes("project")) return "project";
+  if (value.includes("area")) return "area";
+  if (value.includes("resource") || value.includes("reference")) return "resource";
+  if (value.includes("archive")) return "archive";
+  if (/\b(ship|build|implement|feature|release|fix|milestone|launch|deliver)\b/.test(text)) return "project";
+  if (/\b(maintenance|responsibility|health|ops|operations|finance|family|admin)\b/.test(text)) return "area";
+  if (/\b(reference|research|notes|guide|documentation|article|reading)\b/.test(text)) return "resource";
+  if (/\bobsolete|deprecated|archive|old\b/.test(text)) return "archive";
+  return "resource";
+}
+
+function normalizeDomain(input, rawText = "", source = "") {
+  const value = String(input || "").toLowerCase();
+  const text = `${String(rawText || "").toLowerCase()} ${String(source || "").toLowerCase()}`;
+  if (value.includes("software") || value.includes("engineering") || value.includes("code")) return "software";
+  if (value.includes("business")) return "business";
+  if (value.includes("personal")) return "personal";
+  if (value.includes("shared")) return "shared";
+  if (/\b(repo|code|bug|issue|deploy|build|mcp|script|agent|automation|api)\b/.test(text)) return "software";
+  if (/\b(client|sales|marketing|finance|revenue|invoice|proposal|ops)\b/.test(text)) return "business";
+  if (/\b(home|health|family|travel|personal|habit)\b/.test(text)) return "personal";
+  return "shared";
+}
+
+function parseIsoDate(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function scoreFreshness(capturedAt, lastReviewedAt) {
+  const base = parseIsoDate(lastReviewedAt) || parseIsoDate(capturedAt);
+  if (!base) return 40;
+  const ageDays = (Date.now() - base) / (1000 * 60 * 60 * 24);
+  if (ageDays <= 7) return 90;
+  if (ageDays <= 30) return 62;
+  if (ageDays <= 90) return 35;
+  return 15;
+}
+
+function scoreConfidence(rawText, source, sourceRef) {
+  let score = 55;
+  const text = String(rawText || "").toLowerCase();
+  const sourceValue = String(source || "").toLowerCase();
+  if (sourceValue.includes("manual")) score += 10;
+  if (sourceValue.includes("agent") || sourceValue.includes("cli")) score += 5;
+  if (sourceRef) score += 5;
+  score -= countKeywordHits(text, ["maybe", "perhaps", "guess", "unclear", "unknown", "todo", "tbd", "draft", "question"]) * 6;
+  score += countKeywordHits(text, ["decided", "confirmed", "verified", "done", "implemented"]) * 4;
+  if (text.includes("?")) score -= 6;
+  return clampScore(score);
+}
+
+function scoreComplexity(rawText, updatesText) {
+  const text = normalizeWhitespace(rawText);
+  const updates = normalizeWhitespace(updatesText);
+  let score = 20;
+  score += Math.min(45, Math.floor(text.length / 40));
+  score += Math.min(20, Math.floor((text.match(/\n/g) || []).length * 2));
+  score += Math.min(15, countKeywordHits(`${text} ${updates}`.toLowerCase(), [
+    "refactor",
+    "analysis",
+    "investigate",
+    "research",
+    "compare",
+    "design",
+    "workflow",
+    "architecture",
+  ]) * 4);
+  if (updates) score += 10;
+  return clampScore(score);
+}
+
+function scoreRelevance(kind, rawText, freshness) {
+  const text = String(rawText || "").toLowerCase();
+  let score = 45;
+  if (kind === "project") score += 25;
+  if (kind === "area") score += 10;
+  if (kind === "archive") score -= 25;
+  score += countKeywordHits(text, ["now", "current", "active", "next", "sprint", "todo", "deliver", "urgent"]) * 5;
+  if (freshness >= 70) score += 8;
+  if (freshness <= 39) score -= 12;
+  return clampScore(score);
+}
+
+function scoreDuplication(title, rawText, duplicateDocs) {
+  let score = duplicateDocs.length > 0 ? 78 : 18;
+  const text = String(rawText || "").toLowerCase();
+  if (duplicateDocs.length > 1) score += 10;
+  if (/\bduplicate|same as|superseded\b/.test(text)) score += 10;
+  return clampScore(score);
+}
+
+function buildAuditEntry(lines) {
+  return [`### ${nowStamp()}`, "", ...lines, ""].join("\n");
+}
+
+function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, curationFields, auditBody }) {
+  const captureSection = [
+    "# Inbox Capture",
+    "",
+    metadataLine("status", captureFields.status || "inbox"),
+    metadataLine("captured_at", captureFields.captured_at || ""),
+    metadataLine("source", captureFields.source || ""),
+    metadataLine("source_ref", captureFields.source_ref || ""),
+    metadataLine("domain_hint", captureFields.domain_hint || ""),
+    metadataLine("kind_hint", captureFields.kind_hint || ""),
+    "",
+    "## Raw Capture",
+    "",
+    rawText.trim(),
+    "",
+  ];
+
+  if (updatesText && updatesText.trim()) {
+    captureSection.push("## Capture Updates", "", updatesText.trim(), "");
+  }
+
+  const curationSection = [
+    "## Curation",
+    "",
+    metadataLine("status", curationFields.status),
+    metadataLine("kind", curationFields.kind),
+    metadataLine("domain", curationFields.domain),
+    metadataLine("summary", curationFields.summary),
+    metadataLine("confidence", String(curationFields.confidence)),
+    metadataLine("confidence_band", curationFields.confidence_band),
+    metadataLine("complexity", String(curationFields.complexity)),
+    metadataLine("complexity_band", curationFields.complexity_band),
+    metadataLine("relevance", String(curationFields.relevance)),
+    metadataLine("relevance_band", curationFields.relevance_band),
+    metadataLine("duplication", String(curationFields.duplication)),
+    metadataLine("duplication_band", curationFields.duplication_band),
+    metadataLine("freshness", String(curationFields.freshness)),
+    metadataLine("freshness_band", curationFields.freshness_band),
+    metadataLine("review_due_at", curationFields.review_due_at),
+    metadataLine("last_reviewed_at", curationFields.last_reviewed_at),
+    metadataLine("retained_reason", curationFields.retained_reason || ""),
+    metadataLine("discard_reason", curationFields.discard_reason || ""),
+    metadataLine("canonical_ref", curationFields.canonical_ref || ""),
+    metadataLine("refined_at", curationFields.refined_at || ""),
+    metadataLine("archived_at", curationFields.archived_at || ""),
+    metadataLine("discarded_at", curationFields.discarded_at || ""),
+    "",
+  ];
+
+  const auditSection = [
+    "## Audit Trail",
+    "",
+    auditBody.trim(),
+    "",
+  ];
+
+  return [...captureSection, ...curationSection, ...auditSection].join("\n");
+}
+
+function appendMarkdown(body) {
+  const createdAt = nowStamp();
+  return `\n## Capture Update ${createdAt}\n\n${body.trim()}\n`;
 }
 
 async function searchDocByTitle(client, title) {
@@ -226,11 +457,20 @@ async function getParaStructure(client) {
   const topFolders = nodes.filter((node) => node.type === "folder" && !node.parentId);
   const inboxFolder = topFolders.find((node) => node.data === "Inbox") || null;
   const archiveFolder = topFolders.find((node) => node.data === "Archive" || node.data === "Archives") || null;
+  const folderMap = {};
+  for (const node of topFolders) {
+    folderMap[String(node.data || "").toLowerCase()] = node.id;
+  }
   return {
     paraDocId: paraDoc?.docId || paraDoc?.id || null,
     inboxFolderId: inboxFolder?.id || null,
+    projectsFolderId: folderMap.projects || null,
+    areasFolderId: folderMap.areas || null,
+    resourcesFolderId: folderMap.resources || null,
+    archivesFolderId: archiveFolder?.id || null,
     topFolders: topFolders.map((node) => ({ id: node.id, name: node.data })),
     archiveFolderName: archiveFolder?.data || null,
+    organizeNodes: nodes,
   };
 }
 
@@ -272,7 +512,236 @@ async function readDoc(client, docId) {
     docId,
     title: result.title || "",
     markdown,
+    rawText: extractRawCapture(markdown),
+    updatesText: extractCaptureUpdates(markdown),
     fields: extractFieldsFromMarkdown(markdown),
+  };
+}
+
+async function listAllDocs(client, query) {
+  const result = await client.tool("search_docs", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    query,
+    matchMode: "substring",
+    limit: 20,
+  });
+  return asArray(result, "docs", "results");
+}
+
+function requireCaptureFields(doc) {
+  const required = ["captured_at", "source", "domain_hint", "kind_hint"];
+  const missing = required.filter((key) => !normalizeWhitespace(doc.fields[key]));
+  if (!normalizeWhitespace(doc.rawText)) missing.push("raw_text");
+  if (missing.length) {
+    throw new Error(`Missing required capture fields: ${missing.join(", ")}`);
+  }
+}
+
+async function findDuplicateDocs(client, doc) {
+  const candidates = await listAllDocs(client, doc.title);
+  const matches = [];
+  for (const candidate of candidates) {
+    const candidateId = candidate.docId || candidate.id;
+    if (!candidateId || candidateId === doc.docId) continue;
+    if (candidate.title !== doc.title) continue;
+    const full = await readDoc(client, candidateId);
+    matches.push(full);
+  }
+  return matches;
+}
+
+function pickCanonicalRef(duplicates) {
+  const canonical = duplicates.find((item) => item.fields.status === "canonical");
+  if (canonical) return canonical.docId;
+  return "";
+}
+
+function reviewDueAtForStatus(status) {
+  const now = new Date();
+  if (status === "canonical") now.setDate(now.getDate() + 30);
+  else if (status === "archived") now.setDate(now.getDate() + 90);
+  else if (status === "discarded") now.setFullYear(now.getFullYear() + 10);
+  else now.setDate(now.getDate() + 7);
+  return now.toISOString().replace(/\.\d+Z$/, "Z");
+}
+
+function routeFolderId(structure, kind, status) {
+  if (status === "archived" || status === "discarded" || kind === "archive") return structure.archivesFolderId;
+  if (kind === "project") return structure.projectsFolderId;
+  if (kind === "area") return structure.areasFolderId;
+  return structure.resourcesFolderId;
+}
+
+async function moveDocToFolder(client, structure, docId, targetFolderId) {
+  if (!targetFolderId) throw new Error("Missing target organize folder for curated note.");
+  const docNodes = structure.organizeNodes.filter((node) => node.type === "doc" && node.data === docId);
+  const alreadyLinked = docNodes.some((node) => node.parentId === targetFolderId);
+  for (const node of docNodes) {
+    if (node.parentId !== targetFolderId) {
+      await client.tool("delete_organize_link", {
+        workspaceId: client.env.AFFINE_WORKSPACE_ID,
+        nodeId: node.id,
+      });
+    }
+  }
+  if (!alreadyLinked) {
+    await client.tool("add_organize_link", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      folderId: targetFolderId,
+      targetId: docId,
+      type: "doc",
+    });
+  }
+}
+
+function decideOutcome({ kind, scores, duplicateDocs }) {
+  const result = {
+    status: "curated",
+    retainedReason: "Retained as curated material.",
+    discardReason: "",
+    canonicalRef: "",
+    refinedAt: "",
+    archivedAt: "",
+    discardedAt: "",
+  };
+
+  const hasDuplicate = duplicateDocs.length > 0;
+  if (scores.duplication >= 70 && scores.confidence < 40 && scores.relevance < 40) {
+    result.status = "discarded";
+    result.discardReason = "Low-confidence duplicate with low relevance.";
+    result.retainedReason = "";
+    result.discardedAt = nowStamp();
+    result.canonicalRef = pickCanonicalRef(duplicateDocs);
+    return result;
+  }
+
+  if (scores.relevance < 40 && scores.freshness < 40) {
+    result.status = "archived";
+    result.retainedReason = "Low-relevance material retained for audit and future reference.";
+    result.archivedAt = nowStamp();
+    if (hasDuplicate) result.canonicalRef = pickCanonicalRef(duplicateDocs);
+    return result;
+  }
+
+  if (hasDuplicate && scores.confidence >= 40) {
+    result.status = "archived";
+    result.retainedReason = "Superseded by existing canonical or duplicate knowledge.";
+    result.archivedAt = nowStamp();
+    result.canonicalRef = pickCanonicalRef(duplicateDocs);
+    return result;
+  }
+
+  if (scores.complexity >= 70 && scores.relevance >= 40) {
+    result.status = "refined";
+    result.retainedReason = "Requires refinement before durable reuse.";
+    result.refinedAt = nowStamp();
+    return result;
+  }
+
+  if (scores.confidence >= 70 && scores.complexity < 40 && scores.relevance >= 50 && scores.duplication < 70) {
+    result.status = "canonical";
+    result.retainedReason = "Stable, high-value knowledge suitable for direct retrieval.";
+    return result;
+  }
+
+  if (kind === "archive") {
+    result.status = "archived";
+    result.retainedReason = "Explicit archive-class material retained outside active work.";
+    result.archivedAt = nowStamp();
+    return result;
+  }
+
+  return result;
+}
+
+async function curateNote(client, args) {
+  const structure = await ensureInboxSurface(client);
+  const doc = await getNote(client, args);
+  requireCaptureFields(doc);
+
+  const kind = normalizeKind(doc.fields.kind_hint, doc.rawText);
+  const domain = normalizeDomain(doc.fields.domain_hint, doc.rawText, doc.fields.source);
+  const duplicateDocs = await findDuplicateDocs(client, doc);
+  const freshness = scoreFreshness(doc.fields.captured_at, doc.fields.last_reviewed_at);
+  const confidence = scoreConfidence(doc.rawText, doc.fields.source, doc.fields.source_ref);
+  const complexity = scoreComplexity(doc.rawText, doc.updatesText);
+  const relevance = scoreRelevance(kind, doc.rawText, freshness);
+  const duplication = scoreDuplication(doc.title, doc.rawText, duplicateDocs);
+  const scores = { confidence, complexity, relevance, duplication, freshness };
+  const outcome = decideOutcome({ kind, scores, duplicateDocs });
+  const reviewedAt = nowStamp();
+  const summary = summarizeText(doc.rawText);
+  const curationFields = {
+    status: outcome.status,
+    kind,
+    domain,
+    summary,
+    confidence,
+    confidence_band: bandForScore(confidence),
+    complexity,
+    complexity_band: bandForScore(complexity),
+    relevance,
+    relevance_band: bandForScore(relevance),
+    duplication,
+    duplication_band: bandForScore(duplication),
+    freshness,
+    freshness_band: bandForScore(freshness),
+    review_due_at: reviewDueAtForStatus(outcome.status),
+    last_reviewed_at: reviewedAt,
+    retained_reason: outcome.retainedReason,
+    discard_reason: outcome.discardReason,
+    canonical_ref: outcome.canonicalRef,
+    refined_at: outcome.refinedAt,
+    archived_at: outcome.archivedAt,
+    discarded_at: outcome.discardedAt,
+  };
+
+  const auditLines = [
+    `- action: curated`,
+    `- status: ${curationFields.status}`,
+    `- kind: ${curationFields.kind}`,
+    `- domain: ${curationFields.domain}`,
+    `- confidence: ${curationFields.confidence} (${curationFields.confidence_band})`,
+    `- complexity: ${curationFields.complexity} (${curationFields.complexity_band})`,
+    `- relevance: ${curationFields.relevance} (${curationFields.relevance_band})`,
+    `- duplication: ${curationFields.duplication} (${curationFields.duplication_band})`,
+    `- freshness: ${curationFields.freshness} (${curationFields.freshness_band})`,
+    `- retained_reason: ${curationFields.retained_reason || ""}`,
+    `- discard_reason: ${curationFields.discard_reason || ""}`,
+    `- canonical_ref: ${curationFields.canonical_ref || ""}`,
+  ];
+
+  const priorAudit = sectionBetween(doc.markdown, "Audit Trail", []);
+  const auditBody = [buildAuditEntry(auditLines), priorAudit].filter(Boolean).join("\n");
+  const updatedMarkdown = buildCuratedMarkdown({
+    title: doc.title,
+    captureFields: {
+      ...doc.fields,
+      status: "inbox",
+    },
+    rawText: doc.rawText,
+    updatesText: doc.updatesText,
+    curationFields,
+    auditBody,
+  });
+
+  await client.tool("replace_doc_with_markdown", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId: doc.docId,
+    markdown: updatedMarkdown,
+  });
+
+  const targetFolderId = routeFolderId(structure, kind, outcome.status);
+  await moveDocToFolder(client, structure, doc.docId, targetFolderId);
+  const updatedDoc = await readDoc(client, doc.docId);
+
+  return {
+    action: "curated",
+    paraDocId: structure.paraDocId,
+    targetFolderId,
+    targetFolderName: structure.topFolders.find((folder) => folder.id === targetFolderId)?.name || null,
+    duplicateDocIds: duplicateDocs.map((item) => item.docId),
+    doc: updatedDoc,
   };
 }
 
@@ -322,7 +791,7 @@ async function main() {
   const env = loadAffineEnv();
   ensureAffineEnv(env);
   if (!command) {
-    throw new Error("Expected a command: inspect-structure, capture-note, get-note, or append-note.");
+    throw new Error("Expected a command: inspect-structure, capture-note, get-note, append-note, or curate-note.");
   }
 
   const client = new McpClient(env);
@@ -345,6 +814,11 @@ async function main() {
     }
     if (command === "append-note") {
       const result = await appendToNote(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "curate-note") {
+      const result = await curateNote(client, args);
       console.log(JSON.stringify(result, null, 2));
       return;
     }
