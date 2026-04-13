@@ -5,10 +5,11 @@
 - [README.md](../README.md)
 - [AGENTS.md](../AGENTS.md)
 - [Implementation checklist](00-IMPLEMENTATION-CHECKLIST.md)
+- [Note lifecycle spec](paraffine-note-lifecycle.md)
 
 ## Standards Gap
 
-- No existing pattern yet defines the PARAFFINE note lifecycle, scoring model, or scheduled curation workflow.
+- The detailed PARAFFINE note lifecycle, scoring model, and review cadence are defined in [paraffine-note-lifecycle.md](paraffine-note-lifecycle.md).
 - No repo-local adapter pattern exists yet for the AFFiNE write path in this external workflow layer.
 - No background scheduling convention exists yet for Pi or cron-driven refinement and archive review.
 
@@ -54,22 +55,15 @@ flowchart TD
 
 The MVP should keep a single shared PARA model. It should not split software, business, and personal into separate systems unless scale proves that the shared model is failing.
 
-## 4. Note Lifecycle Model
+## 4. Note Lifecycle Reference
 
-The high-level lifecycle is:
+The durable note lifecycle, scoring model, capture-time versus curation-time metadata, and review cadence live in [paraffine-note-lifecycle.md](paraffine-note-lifecycle.md).
 
-`captured -> inbox -> curated -> refined -> archived / discarded`
+At the architecture level, the lifecycle stays intentionally simple:
 
-Recommended metadata fields for later implementation:
+`captured -> inbox -> curated -> refined -> canonical -> archived / discarded`
 
-- `status`
-- `kind`
-- `domain`
-- `confidence`
-- `complexity`
-- `relevance`
-- `last_reviewed_at`
-- `review_due_at`
+This doc only keeps the high-level flow and the phase boundary. The dedicated lifecycle spec owns the detailed state contract so downstream tasks can extend it without re-planning.
 
 This model keeps archive and discard decisions explicit. Discarded notes should remain auditable so the system remembers that a curation decision was made.
 
