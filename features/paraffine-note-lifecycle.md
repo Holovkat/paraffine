@@ -22,6 +22,26 @@ The model is deliberately documentation-level only. It does not define runtime c
 - Keep deterministic and AI-assisted flows compatible with the same state contract.
 - Do not finalize threshold values by inventing precision that the product has not validated.
 
+## Policy Decisions
+
+The following policy decisions are locked for the current implementation phase:
+
+- scoring uses both numeric values and qualitative bands
+- all five dimensions are active in the MVP:
+  - `confidence`
+  - `complexity`
+  - `relevance`
+  - `duplication`
+  - `freshness`
+- canonicalization should be aggressive when duplication is high, but only if confidence is not low
+- capture-time required fields are:
+  - `raw_text`
+  - `source`
+  - `captured_at`
+  - `domain_hint`
+  - `kind_hint`
+- discarded notes do not re-enter the workflow automatically; they are reopened manually
+
 ## State Model
 
 ### States
@@ -78,10 +98,10 @@ Capture-time metadata should stay small and easy to provide.
 | `source` | Yes | Agent, CLI, manual entry, or other origin |
 | `raw_text` | Yes | The original note content |
 | `source_ref` | No | Pointer back to the originating message, file, or prompt |
-| `domain_hint` | No | Early guess such as software, business, personal, or shared |
-| `kind_hint` | No | Early guess about PARA destination |
+| `domain_hint` | Yes | Early guess such as software, business, personal, or shared |
+| `kind_hint` | Yes | Early guess about PARA destination |
 
-Capture-time data must not require a final PARA destination, a final score, or a final retention decision.
+Capture-time data must not require a final PARA destination, a final score, or a final retention decision. `domain_hint` and `kind_hint` are mandatory hints, not final curation outcomes.
 
 ### Curation-Time Metadata
 
@@ -106,7 +126,7 @@ Curation-time metadata is added when the note has been reviewed.
 
 ## Scoring And Routing Model
 
-The scoring model is based on a few stable inputs. The exact numeric thresholds are intentionally deferred, but the decision points are explicit.
+The scoring model is based on a few stable inputs. Each input carries a numeric score and a derived qualitative band.
 
 | Input | What It Measures | Used For |
 |-------|------------------|----------|
@@ -115,6 +135,16 @@ The scoring model is based on a few stable inputs. The exact numeric thresholds 
 | `relevance` | How important the note is to current or likely future work | Whether the note stays active or is archived |
 | `duplication` | How much the note overlaps with existing canonical knowledge | Merge, dedupe, or supersede decisions |
 | `freshness` | How recently the note was created or reviewed | Review cadence and staleness handling |
+
+### Band Thresholds
+
+| Band | Range | Meaning |
+|------|-------|---------|
+| `low` | `0-39` | Weak signal, low priority, or low trust |
+| `medium` | `40-69` | Mixed signal, moderate importance, or moderate certainty |
+| `high` | `70-100` | Strong signal, high importance, or high certainty |
+
+These thresholds apply across all five dimensions for the first implementation pass.
 
 ### Routing Bands
 
@@ -126,12 +156,22 @@ The scoring model is based on a few stable inputs. The exact numeric thresholds 
 | `archive candidate` | The note remains useful but is no longer active | Archive the note with an audit trail |
 | `discard candidate` | The note is not useful enough to retain as active knowledge | Mark the note as discarded, with reason recorded |
 
-### Threshold Policy
+### Decision Rubric
 
-- The exact numeric cutoffs for the routing bands are intentionally left open.
-- Thresholds may be tuned later without changing the state model.
-- If a task needs a cutoff before implementation, that task must surface the missing decision instead of inventing one.
-- Open thresholds are acceptable in this spec as long as the decision points are visible.
+| Outcome | Typical Signal Pattern | Default Decision |
+|---------|------------------------|------------------|
+| `keep as-is` | `confidence=high`, `complexity=low`, `duplication=low/medium` | Keep in `curated` without refinement |
+| `refine` | `complexity=high` and `relevance=medium/high` | Move to `refined` |
+| `canonicalize` | `confidence=high`, `relevance=high`, `duplication=low/medium` | Promote to `canonical` |
+| `merge/supersede` | `duplication=high` and `confidence=medium/high` | Merge into canonical or supersede duplicate |
+| `archive` | `relevance=low`, `freshness=low`, but still useful | Move to `archived` |
+| `discard` | `confidence=low`, `relevance=low`, `duplication=high` or clearly not useful | Move to `discarded` |
+
+### Canonicalization Rule
+
+- Prefer aggressive canonicalization to avoid knowledge sprawl.
+- Do not aggressively merge uncertain notes into canonical state when `confidence` is low.
+- If duplication is high but confidence is low, keep the note non-canonical until later review or discard it if relevance is also low.
 
 ## Review Cadence
 
@@ -144,7 +184,7 @@ The cadence below is a default operating model, not a hard runtime guarantee.
 | `refined` | Weekly or after a major source update | Confirm the synthesis still matches the source material |
 | `canonical` | Monthly | Keep durable knowledge fresh and merge duplicates if they appear |
 | `archived` | Monthly or quarterly | Decide whether stale material should be reactivated or left alone |
-| `discarded` | Manual reopen or periodic audit | Preserve the ability to recover a rejected note if the decision changes |
+| `discarded` | Manual reopen only | Preserve the ability to recover a rejected note if the decision changes |
 
 ## Outcome Contracts
 
@@ -198,12 +238,10 @@ PARAFFINE must support both deterministic and AI-assisted curation without chang
 - AI must not invent lifecycle states or bypass the audit trail for archive and discard.
 - If AI is unavailable, the workflow still needs to support capture, curation, archiving, and retrieval through deterministic rules.
 
-## Open Questions
+## Remaining Questions
 
-- What exact thresholds should trigger refinement, archive, discard, or canonical promotion?
-- Should confidence be represented as a numeric value, qualitative bands, or both?
-- How strict should the canonicalization step be when a note overlaps with an existing canonical note?
-- Which fields are required for every note versus optional hints that only improve curation quality?
-- How often should discarded notes be re-audited, if at all, by default?
+- Should the dimension bands be persisted alongside raw numeric scores, or derived on read?
+- How should the first implementation compute the five scores: deterministic rules only, AI suggestions, or a hybrid pipeline?
+- What minimum retrieval payload should agents receive for `canonical` notes versus merely `curated` notes?
 
-These questions are intentionally left open so later implementation tasks can tune policy without rewriting the lifecycle contract.
+These are implementation questions, not policy gaps. They can be answered in downstream tasks without changing the lifecycle contract.

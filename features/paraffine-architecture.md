@@ -80,6 +80,18 @@ This doc only keeps the high-level flow and the phase boundary. The dedicated li
 
 This model keeps archive and discard decisions explicit. Discarded notes should remain auditable so the system remembers that a curation decision was made.
 
+The current policy baseline is:
+
+- scoring uses both numeric values and qualitative bands
+- the MVP tracks five dimensions: `confidence`, `complexity`, `relevance`, `duplication`, and `freshness`
+- shared thresholds apply across those dimensions:
+  - `low = 0-39`
+  - `medium = 40-69`
+  - `high = 70-100`
+- capture requires `raw_text`, `source`, `captured_at`, `domain_hint`, and `kind_hint`
+- canonicalization is aggressive when duplication is high, but only when confidence is not low
+- archived notes may be reviewed automatically, but discarded notes return only through manual reopen
+
 ## 5. Phased Execution
 
 ### Phase 1: Repository Bootstrap
@@ -107,11 +119,15 @@ This model keeps archive and discard decisions explicit. Discarded notes should 
 
 - Only after the external workflow is stable should the team consider moving behavior into a PARAFFINE-flavored AFFiNE Community Edition fork.
 
-## 6. Open Questions
+## 6. Decision Baseline
 
-- What thresholds should trigger refinement, archive, or discard?
-- Which metadata fields should be required at capture time versus added during curation?
-- Should the first AI-assisted pass be optional or always on?
-- What is the minimum acceptable retrieval contract for agents?
+These policy decisions are now locked for the next implementation phase:
 
-These questions are intentionally deferred to later tasks so the repository can stay focused on the bootstrap boundary.
+- use a hybrid numeric-plus-band scoring model
+- keep all five scoring dimensions in the MVP
+- use aggressive canonicalization, gated by confidence
+- require `raw_text`, `source`, `captured_at`, `domain_hint`, and `kind_hint` at capture time
+- keep final routing, retention, and canonical decisions in the curation pass
+- keep discarded notes out of automatic review until explicitly reopened
+
+The remaining open items are implementation details, not policy gaps.
