@@ -130,4 +130,4 @@ These policy decisions are now locked for the next implementation phase:
 - keep final routing, retention, and canonical decisions in the curation pass
 - keep discarded notes out of automatic review until explicitly reopened
 
-The remaining open items are implementation details, not policy gaps.
+The implementation defaults are now locked in the lifecycle spec so downstream tasks can proceed without reopening model questions.

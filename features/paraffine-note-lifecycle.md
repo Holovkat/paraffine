@@ -238,10 +238,37 @@ PARAFFINE must support both deterministic and AI-assisted curation without chang
 - AI must not invent lifecycle states or bypass the audit trail for archive and discard.
 - If AI is unavailable, the workflow still needs to support capture, curation, archiving, and retrieval through deterministic rules.
 
-## Remaining Questions
+## Implementation Defaults
 
-- Should the dimension bands be persisted alongside raw numeric scores, or derived on read?
-- How should the first implementation compute the five scores: deterministic rules only, AI suggestions, or a hybrid pipeline?
-- What minimum retrieval payload should agents receive for `canonical` notes versus merely `curated` notes?
+The following implementation defaults are now locked for the MVP so downstream tasks do not need to reopen them.
 
-These are implementation questions, not policy gaps. They can be answered in downstream tasks without changing the lifecycle contract.
+### Score Persistence
+
+- Persist both the raw numeric score and the derived qualitative band for each dimension.
+- Treat the numeric score as the source of truth.
+- Recompute and overwrite the stored band whenever the numeric score changes.
+- Expose bands directly to agent retrieval surfaces so filtering and review logic do not need to re-derive them at read time.
+
+### Scoring Pipeline
+
+- Use a hybrid scoring pipeline for the MVP.
+- Deterministic rules provide the baseline score for every dimension so the system works without AI.
+- AI-assisted refinement may suggest score adjustments, summaries, dedupe recommendations, and canonicalization candidates.
+- Final emitted scores must still conform to the same numeric-plus-band contract, regardless of whether AI participated.
+- If AI is unavailable, the workflow falls back to deterministic scoring without changing state transitions or payload shape.
+
+### Retrieval Payload Contract
+
+Canonical notes and curated notes do not expose the same default payload. Retrieval should prefer canonical notes whenever they exist.
+
+| Retrieval Class | Minimum Payload |
+|-----------------|-----------------|
+| `canonical` | `id`, `title`, `status`, `kind`, `domain`, `summary`, `canonical_body`, `source_refs`, `confidence`, `confidence_band`, `relevance`, `relevance_band`, `last_reviewed_at`, `canonical_ref` if superseded lineage exists |
+| `curated` | `id`, `title`, `status`, `kind`, `domain`, `summary_or_excerpt`, `confidence_band`, `complexity_band`, `relevance_band`, `last_reviewed_at`, `review_due_at`, `canonical_ref` if a canonical note already exists |
+
+Default retrieval behavior:
+
+- return `canonical` notes first when both canonical and curated variants exist
+- return `curated` notes when no canonical note exists or when the caller explicitly requests working material
+- exclude `discarded` notes from default retrieval
+- keep `archived` notes out of default retrieval unless the caller requests historical context
