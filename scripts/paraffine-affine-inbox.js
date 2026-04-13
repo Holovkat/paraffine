@@ -105,14 +105,23 @@ class McpClient {
     const id = this.nextId++;
     const payload = { jsonrpc: "2.0", id, method, params };
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.proc.stdin.write(`${JSON.stringify(payload)}\n`);
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`Timeout waiting for ${method}`));
         }
       }, 20000);
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+      this.proc.stdin.write(`${JSON.stringify(payload)}\n`);
     });
   }
 
@@ -144,7 +153,25 @@ class McpClient {
   }
 
   async stop() {
-    if (this.proc) this.proc.kill("SIGTERM");
+    if (!this.proc) return;
+    const proc = this.proc;
+    this.proc = null;
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      proc.once("exit", finish);
+      proc.once("close", finish);
+      proc.kill("SIGTERM");
+      setTimeout(() => {
+        if (settled) return;
+        proc.kill("SIGKILL");
+      }, 2000);
+      setTimeout(finish, 4000);
+    });
   }
 }
 
@@ -158,6 +185,8 @@ function shouldRetryTool(name) {
     "search_docs",
     "list_docs",
     "list_organize_nodes",
+    "list_children",
+    "list_backlinks",
     "get_doc",
     "get_doc_by_title",
   ].includes(name);
@@ -601,21 +630,57 @@ async function getParaStructure(client) {
   const topFolders = nodes.filter((node) => node.type === "folder" && !node.parentId);
   const inboxFolder = topFolders.find((node) => node.data === "Inbox") || null;
   const archiveFolder = topFolders.find((node) => node.data === "Archive" || node.data === "Archives") || null;
+  const inboxChildren = inboxFolder ? nodes.filter((node) => node.parentId === inboxFolder.id) : [];
+  const quarantineFolder = inboxChildren.find((node) => node.type === "folder" && node.data === "Quarantine") || null;
   const folderMap = {};
   for (const node of topFolders) {
     folderMap[String(node.data || "").toLowerCase()] = node.id;
   }
+  const paraChildren = paraDoc?.docId
+    ? await client.tool("list_children", {
+        workspaceId: client.env.AFFINE_WORKSPACE_ID,
+        docId: paraDoc.docId,
+      })
+    : { children: [] };
+  const paraChildDocs = asArray(paraChildren, "children").map((child) => ({
+    docId: child.docId || child.id,
+    title: child.title || "",
+  }));
+  const containerDocMap = {};
+  for (const child of paraChildDocs) {
+    containerDocMap[String(child.title || "").toLowerCase()] = child.docId;
+  }
   return {
     paraDocId: paraDoc?.docId || paraDoc?.id || null,
     inboxFolderId: inboxFolder?.id || null,
+    quarantineFolderId: quarantineFolder?.id || null,
     projectsFolderId: folderMap.projects || null,
     areasFolderId: folderMap.areas || null,
     resourcesFolderId: folderMap.resources || null,
     archivesFolderId: archiveFolder?.id || null,
+    projectsDocId: containerDocMap.projects || null,
+    areasDocId: containerDocMap.areas || null,
+    resourcesDocId: containerDocMap.resources || null,
+    archivesDocId: containerDocMap.archives || containerDocMap.archive || null,
     topFolders: topFolders.map((node) => ({ id: node.id, name: node.data })),
+    paraChildDocs,
     archiveFolderName: archiveFolder?.data || null,
     organizeNodes: nodes,
   };
+}
+
+async function ensureChildFolder(client, parentId, folderName) {
+  const current = await getParaStructure(client);
+  const existing = current.organizeNodes.find(
+    (node) => node.type === "folder" && node.parentId === parentId && String(node.data || "") === folderName
+  );
+  if (existing) return existing.id;
+  const created = await client.tool("create_folder", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    parentId,
+    name: folderName,
+  });
+  return created.folderId || created.id;
 }
 
 async function ensureInboxSurface(client) {
@@ -626,7 +691,10 @@ async function ensureInboxSurface(client) {
   if (!structure.inboxFolderId) {
     throw new Error("Missing Inbox organize folder in AFFiNE. Create the Inbox folder in the sidebar first.");
   }
-  return structure;
+  if (!structure.quarantineFolderId) {
+    await ensureChildFolder(client, structure.inboxFolderId, "Quarantine");
+  }
+  return getParaStructure(client);
 }
 
 async function createInboxDoc(client, title, markdown, inboxFolderId) {
@@ -770,10 +838,303 @@ async function findDuplicateDocs(client, doc) {
   return matches;
 }
 
+async function loadPackRelations(_client, docs) {
+  const relations = new Map();
+  for (const doc of docs) {
+    relations.set(doc.docId, {
+      childDocIds: new Set(),
+      parentDocIds: new Set(),
+      children: [],
+      parents: [],
+    });
+  }
+  return relations;
+}
+
+function docTitleMentions(doc, otherDoc) {
+  const text = normalizePackText([doc.title, doc.rawText, doc.fields.summary || ""].join(" "));
+  const otherTitle = normalizePackText(otherDoc.title || "");
+  if (!otherTitle) return false;
+  return text.includes(otherTitle);
+}
+
+function areDocsPackRelated(leftDoc, rightDoc, relations, features) {
+  const leftRelation = relations.get(leftDoc.docId);
+  const rightRelation = relations.get(rightDoc.docId);
+  if (leftRelation?.childDocIds.has(rightDoc.docId) || leftRelation?.parentDocIds.has(rightDoc.docId)) return true;
+  if (rightRelation?.childDocIds.has(leftDoc.docId) || rightRelation?.parentDocIds.has(leftDoc.docId)) return true;
+
+  const overlap = sharedTopicCount(features.get(leftDoc.docId), features.get(rightDoc.docId));
+  if (overlap >= 2) return true;
+  if (overlap >= 1 && sameCaptureBucket(leftDoc, rightDoc)) return true;
+  if (sameCaptureBucket(leftDoc, rightDoc) && (docTitleMentions(leftDoc, rightDoc) || docTitleMentions(rightDoc, leftDoc))) {
+    return true;
+  }
+  return false;
+}
+
+function buildPackGroups(docs, relations) {
+  const features = new Map(docs.map((doc) => [doc.docId, topicTokensForDoc(doc)]));
+  const visited = new Set();
+  const groups = [];
+
+  for (const doc of docs) {
+    if (visited.has(doc.docId)) continue;
+    const queue = [doc];
+    const members = [];
+    visited.add(doc.docId);
+    while (queue.length) {
+      const current = queue.shift();
+      members.push(current);
+      for (const candidate of docs) {
+        if (visited.has(candidate.docId)) continue;
+        if (!areDocsPackRelated(current, candidate, relations, features)) continue;
+        visited.add(candidate.docId);
+        queue.push(candidate);
+      }
+    }
+    groups.push(members);
+  }
+
+  return groups;
+}
+
+function choosePackAnchor(group, relations) {
+  const ranked = [...group]
+    .map((doc) => ({
+      doc,
+      score: anchorScoreForDoc(doc, relations.get(doc.docId) || { childDocIds: new Set(), parentDocIds: new Set() }),
+    }))
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return String(left.doc.title || "").localeCompare(String(right.doc.title || ""));
+    });
+  return ranked[0]?.score > 0 ? ranked[0].doc : null;
+}
+
+function preferredPackChildren(group, relations, anchorDoc) {
+  if (!anchorDoc) return new Map();
+  const groupIds = new Set(group.map((item) => item.docId));
+  const childAssignments = new Map();
+  for (const doc of group) {
+    if (doc.docId === anchorDoc.docId) continue;
+    const relation = relations.get(doc.docId);
+    const internalParent = [...(relation?.parentDocIds || [])].find((parentId) => groupIds.has(parentId));
+    if (internalParent) {
+      childAssignments.set(doc.docId, internalParent);
+      continue;
+    }
+    if (!isExampleLikeDoc(doc)) continue;
+    childAssignments.set(doc.docId, anchorDoc.docId);
+  }
+  return childAssignments;
+}
+
+function dominantPlacement(group) {
+  const counts = new Map();
+  for (const doc of group) {
+    const key = doc.targetFolderId || "";
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || null;
+}
+
+function titleCaseToken(token) {
+  if (!token) return "";
+  if (token.toLowerCase() === "para") return "PARA";
+  return token.charAt(0).toUpperCase() + token.slice(1);
+}
+
+function pickPackFolderName(group) {
+  const rawGroupText = normalizePackText(group.map((doc) => [doc.title, doc.rawText, doc.fields.summary || ""].join(" ")).join(" "));
+  if (rawGroupText.includes("para")) return "PARA";
+  const tokenCounts = new Map();
+  const featureSets = group.map((doc) => topicTokensForDoc(doc));
+  for (const tokens of featureSets) {
+    for (const token of tokens) {
+      tokenCounts.set(token, (tokenCounts.get(token) || 0) + 1);
+    }
+  }
+  const ranked = [...tokenCounts.entries()]
+    .filter(([, count]) => count >= Math.max(2, Math.ceil(group.length / 2)))
+    .sort((left, right) => {
+      if (right[1] !== left[1]) return right[1] - left[1];
+      return left[0].localeCompare(right[0]);
+    });
+  return titleCaseToken(ranked[0]?.[0] || slugify(group[0]?.title || "pack").toUpperCase());
+}
+
+async function ensurePackFolder(client, structure, parentFolderId, folderName) {
+  const current = await getParaStructure(client);
+  const existing = current.organizeNodes.find(
+    (node) => node.type === "folder" && node.parentId === parentFolderId && String(node.data || "") === folderName
+  );
+  if (existing) return existing.id;
+  const created = await client.tool("create_folder", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    parentId: parentFolderId,
+    name: folderName,
+  });
+  return created.folderId || created.id;
+}
+
+async function relinkDocToOrganizeFolder(client, docId, targetFolderId) {
+  const current = await getParaStructure(client);
+  const docNodes = current.organizeNodes.filter((node) => node.type === "doc" && node.data === docId);
+  const targetNode = docNodes.find((node) => node.parentId === targetFolderId) || null;
+  const primaryNode = targetNode || docNodes[0] || null;
+  if (primaryNode && primaryNode.parentId !== targetFolderId) {
+    await client.tool("move_organize_node", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      nodeId: primaryNode.id,
+      parentId: targetFolderId,
+    });
+  }
+  const staleNodes = docNodes.filter((node) => node.id !== primaryNode?.id && node.parentId !== targetFolderId);
+  for (const node of staleNodes) {
+    await client.tool("delete_organize_link", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      nodeId: node.id,
+    });
+  }
+  if (!primaryNode) {
+    await client.tool("add_organize_link", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      folderId: targetFolderId,
+      targetId: docId,
+      type: "doc",
+    });
+  }
+}
+
+function summarizeQuarantineReason(reason) {
+  return String(reason || "").replace(/\s+/g, " ").trim();
+}
+
+function buildQuarantineMarkdown(doc, reason, relatedDocIds = []) {
+  const relatedLines = relatedDocIds.length ? relatedDocIds.map((docId) => `- related_doc: ${docId}`) : ["- related_doc:"];
+  return [
+    `# ${doc.title}`,
+    "",
+    "## Quarantine",
+    "",
+    metadataLine("status", "quarantined"),
+    metadataLine("quarantine_reason", summarizeQuarantineReason(reason)),
+    "",
+    "## Related Notes",
+    "",
+    ...relatedLines,
+    "",
+    "## Intake",
+    "",
+    metadataLine("captured_at", doc.fields.captured_at || ""),
+    metadataLine("source", doc.fields.source || ""),
+    metadataLine("source_ref", doc.fields.source_ref || ""),
+    metadataLine("domain_hint", doc.fields.domain_hint || ""),
+    metadataLine("kind_hint", doc.fields.kind_hint || ""),
+    "",
+    "## Raw Capture",
+    "",
+    doc.rawText || "",
+    "",
+  ].join("\n");
+}
+
+async function quarantineDoc(client, structure, doc, reason, relatedDocIds = []) {
+  if (!structure.quarantineFolderId) throw new Error("Missing Inbox/Quarantine folder.");
+  await client.tool("replace_doc_with_markdown", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId: doc.docId,
+    markdown: buildQuarantineMarkdown(doc, reason, relatedDocIds),
+    strict: false,
+  });
+  await relinkDocToOrganizeFolder(client, doc.docId, structure.quarantineFolderId);
+  return {
+    action: "quarantined",
+    docId: doc.docId,
+    title: doc.title,
+    reason: summarizeQuarantineReason(reason),
+    relatedDocIds,
+  };
+}
+
+async function applyPackPlacement(client, structure, group, relations) {
+  if (!group.length) {
+    return { docIds: [], rootDocIds: [], childAssignments: [] };
+  }
+  const distinctTargets = [...new Set(group.map((doc) => doc.targetFolderId).filter(Boolean))];
+  if (distinctTargets.length > 1) {
+    const reason = "Pack members resolved to multiple PARA destinations and require manual review.";
+    const quarantined = [];
+    for (const doc of group) {
+      const relatedDocIds = group.filter((item) => item.docId !== doc.docId).map((item) => item.docId);
+      quarantined.push(await quarantineDoc(client, structure, doc, reason, relatedDocIds));
+    }
+    return {
+      action: "quarantined-pack",
+      reason,
+      docIds: group.map((doc) => doc.docId),
+      quarantined,
+    };
+  }
+  const anchorDoc = choosePackAnchor(group, relations);
+  const childAssignments = preferredPackChildren(group, relations, anchorDoc);
+  const rootDocs = group.filter((doc) => !childAssignments.has(doc.docId));
+  const targetFolderId = dominantPlacement(group) || rootDocs[0]?.targetFolderId || routeFolderId(structure, "resource", "curated");
+  const packFolderName = pickPackFolderName(group);
+  const packFolderId = group.length > 1 ? await ensurePackFolder(client, structure, targetFolderId, packFolderName) : targetFolderId;
+
+  for (const doc of group) {
+    await relinkDocToOrganizeFolder(client, doc.docId, packFolderId);
+  }
+
+  return {
+    docIds: group.map((doc) => doc.docId),
+    anchorDocId: anchorDoc?.docId || null,
+    rootDocIds: rootDocs.map((doc) => doc.docId),
+    childAssignments: [...childAssignments.entries()].map(([docId, parentDocId]) => ({ docId, parentDocId })),
+    targetFolderId,
+    packFolderId,
+    packFolderName,
+  };
+}
+
 function pickCanonicalRef(duplicates) {
   const canonical = duplicates.find((item) => item.fields.status === "canonical");
   if (canonical) return canonical.docId;
   return "";
+}
+
+function captureFieldGaps(doc) {
+  const missing = [];
+  for (const key of ["captured_at", "source", "domain_hint", "kind_hint"]) {
+    if (!normalizeWhitespace(doc.fields[key])) missing.push(key);
+  }
+  if (!normalizeWhitespace(doc.rawText)) missing.push("raw_text");
+  return missing;
+}
+
+function quarantineReasonForDoc(doc, duplicateDocs) {
+  const missing = captureFieldGaps(doc);
+  if (missing.length) {
+    return {
+      reason: `Missing required capture fields: ${missing.join(", ")}`,
+      relatedDocIds: [],
+    };
+  }
+  if (duplicateDocs.length > 1 && !pickCanonicalRef(duplicateDocs)) {
+    return {
+      reason: "Multiple duplicate notes exist without a clear canonical target.",
+      relatedDocIds: duplicateDocs.map((item) => item.docId),
+    };
+  }
+  if (duplicateDocs.length > 0 && /contradict|conflict/i.test(String(doc.rawText || ""))) {
+    return {
+      reason: "Incoming note appears to conflict with existing related material.",
+      relatedDocIds: duplicateDocs.map((item) => item.docId),
+    };
+  }
+  return null;
 }
 
 function reviewDueAtForStatus(status) {
@@ -793,9 +1154,192 @@ function routeFolderId(structure, kind, status) {
   return structure.resourcesFolderId;
 }
 
+function routeContainerDocId(structure, kind, status) {
+  if (status === "archived" || status === "discarded" || kind === "archive") return structure.archivesDocId;
+  if (kind === "project") return structure.projectsDocId;
+  if (kind === "area") return structure.areasDocId;
+  return structure.resourcesDocId;
+}
+
+function normalizePackText(input) {
+  return String(input || "").toLowerCase();
+}
+
+const PACK_STOPWORDS = new Set([
+  "about",
+  "active",
+  "agent",
+  "archives",
+  "areas",
+  "capture",
+  "classifies",
+  "current",
+  "detail",
+  "details",
+  "documentation",
+  "example",
+  "examples",
+  "guide",
+  "high",
+  "inbox",
+  "knowledge",
+  "material",
+  "method",
+  "notes",
+  "overview",
+  "pattern",
+  "place",
+  "project",
+  "projects",
+  "reference",
+  "resources",
+  "retained",
+  "review",
+  "seed",
+  "stage",
+  "workflow",
+]);
+
+function topicTokensForDoc(doc) {
+  const text = normalizePackText([
+    doc.title,
+    doc.fields.summary || "",
+    doc.fields.source_ref || "",
+    doc.rawText || "",
+  ].join(" "));
+  const tokens = new Set();
+  for (const match of text.matchAll(/[a-z0-9]{4,}/g)) {
+    const token = match[0];
+    if (PACK_STOPWORDS.has(token)) continue;
+    tokens.add(token);
+    if (token.startsWith("para")) tokens.add("para");
+  }
+  return tokens;
+}
+
+function sharedTopicCount(leftTokens, rightTokens) {
+  let hits = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) hits += 1;
+  }
+  return hits;
+}
+
+function sameCaptureBucket(leftDoc, rightDoc) {
+  const leftSource = normalizePackText(leftDoc.fields.source || "");
+  const rightSource = normalizePackText(rightDoc.fields.source || "");
+  if (!leftSource || leftSource !== rightSource) return false;
+  const leftAt = parseIsoDate(leftDoc.fields.captured_at);
+  const rightAt = parseIsoDate(rightDoc.fields.captured_at);
+  if (!leftAt || !rightAt) return false;
+  return Math.abs(leftAt - rightAt) <= 1000 * 60 * 60 * 24 * 2;
+}
+
+function isExampleLikeDoc(doc) {
+  return /\bexamples?$/i.test(String(doc.title || "").trim());
+}
+
+function anchorScoreForDoc(doc, relation) {
+  let score = 0;
+  const title = String(doc.title || "");
+  if (/\bin detail\b/i.test(title)) score += 9;
+  if (/\b(method|guide|reference|playbook|manual|library|primer)\b/i.test(title)) score += 7;
+  if (/\boverview\b/i.test(title)) score += 3;
+  if (relation.childDocIds.size > 0) score += 5;
+  if (relation.parentDocIds.size > 0) score += 2;
+  if (isExampleLikeDoc(doc)) score -= 8;
+  return score;
+}
+
+async function listDocBacklinks(client, docId) {
+  const result = await client.tool("list_backlinks", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId,
+  });
+  return asArray(result, "backlinks", "parents").map((item) => ({
+    docId: item.docId || item.id,
+    title: item.title || "",
+  })).filter((item) => item.docId);
+}
+
+async function listDocChildren(client, docId) {
+  const result = await client.tool("list_children", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId,
+  });
+  return asArray(result, "children").map((item) => ({
+    docId: item.docId || item.id,
+    title: item.title || "",
+  })).filter((item) => item.docId);
+}
+
+async function getDocOrganizeLinks(client, docId) {
+  const current = await getParaStructure(client);
+  return current.organizeNodes.filter((node) => node.type === "doc" && node.data === docId);
+}
+
+async function clearDocFolderLinks(client, docId, keepFolderId = null) {
+  const docNodes = await getDocOrganizeLinks(client, docId);
+  for (const node of docNodes) {
+    if (keepFolderId && node.parentId === keepFolderId) continue;
+    await client.tool("delete_organize_link", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      nodeId: node.id,
+    });
+  }
+}
+
+async function ensureDocUnderParent(client, docId, parentDocId, options = {}) {
+  const backlinks = await listDocBacklinks(client, docId);
+  if (backlinks.some((item) => item.docId === parentDocId)) {
+    return { action: "kept", docId, parentDocId };
+  }
+  if (backlinks.length > 0 && !options.forceMove) {
+    return {
+      action: "skipped-existing-parent",
+      docId,
+      parentDocId,
+      existingParents: backlinks.map((item) => item.docId),
+    };
+  }
+  const moveArgs = {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId,
+    toParentDocId: parentDocId,
+  };
+  if (backlinks.length === 1) {
+    moveArgs.fromParentDocId = backlinks[0].docId;
+  }
+  await client.tool("move_doc", moveArgs);
+  return { action: "linked", docId, parentDocId };
+}
+
 async function moveDocToFolder(client, structure, docId, targetFolderId) {
   if (!targetFolderId) throw new Error("Missing target organize folder for curated note.");
-  const docNodes = structure.organizeNodes.filter((node) => node.type === "doc" && node.data === docId);
+  const backlinks = await listDocBacklinks(client, docId);
+  const paraContainerDocIds = new Set(
+    [structure.projectsDocId, structure.areasDocId, structure.resourcesDocId, structure.archivesDocId].filter(Boolean)
+  );
+  const hasNonContainerParent = backlinks.some((item) => item.docId && !paraContainerDocIds.has(item.docId));
+  if (hasNonContainerParent) {
+    await clearDocFolderLinks(client, docId);
+    return { action: "child-only", docId };
+  }
+  const containerDocId = routeContainerDocId(structure, "resource", "curated");
+  const targetContainerDocId =
+    targetFolderId === structure.projectsFolderId
+      ? structure.projectsDocId
+      : targetFolderId === structure.areasFolderId
+        ? structure.areasDocId
+        : targetFolderId === structure.archivesFolderId
+          ? structure.archivesDocId
+          : structure.resourcesDocId || containerDocId;
+  if (targetContainerDocId) {
+    await ensureDocUnderParent(client, docId, targetContainerDocId, { forceMove: true });
+    await clearDocFolderLinks(client, docId);
+    return { action: "container-linked", docId, parentDocId: targetContainerDocId };
+  }
+  const docNodes = await getDocOrganizeLinks(client, docId);
   const alreadyLinked = docNodes.some((node) => node.parentId === targetFolderId);
   for (const node of docNodes) {
     if (node.parentId !== targetFolderId) {
@@ -813,6 +1357,7 @@ async function moveDocToFolder(client, structure, docId, targetFolderId) {
       type: "doc",
     });
   }
+  return { action: "folder-linked", docId, folderId: targetFolderId };
 }
 
 function parseStoredScore(value, fallback = 0) {
@@ -1192,6 +1737,28 @@ async function reviewQueue(client, args) {
   };
 }
 
+async function reviewDocIds(client, docIds, statuses) {
+  const results = [];
+  for (const docId of docIds) {
+    const doc = await readDoc(client, docId);
+    if (!doc.fields.status || !statuses.includes(doc.fields.status)) continue;
+    const result = await reviewNote(client, { "doc-id": docId });
+    results.push({
+      docId,
+      title: doc.title,
+      action: result.action,
+      reason: result.reason || null,
+      targetFolderName: result.targetFolderName || null,
+    });
+  }
+  return {
+    action: "reviewed",
+    count: results.length,
+    deterministicFallback: true,
+    results,
+  };
+}
+
 function parseStatusList(input, fallback) {
   return String(input || fallback)
     .split(",")
@@ -1320,6 +1887,44 @@ async function retrieveNotes(client, args) {
   };
 }
 
+async function retrieveDocIds(client, docIds, statuses) {
+  const notes = [];
+  for (const docId of docIds) {
+    const doc = await readDoc(client, docId);
+    const fields = buildReviewFields(doc);
+    if (!fields.status || !statuses.includes(fields.status)) continue;
+    notes.push({
+      docId,
+      title: doc.title,
+      status: fields.status,
+      kind: fields.kind,
+      domain: fields.domain,
+      summary: fields.summary,
+      confidence: fields.confidence,
+      confidence_band: bandForScore(fields.confidence),
+      relevance: fields.relevance,
+      relevance_band: bandForScore(fields.relevance),
+      freshness: fields.freshness,
+      freshness_band: bandForScore(fields.freshness),
+      retained_reason: fields.retained_reason,
+      canonical_ref: fields.canonical_ref || "",
+      source_ref: doc.fields.source_ref || "",
+    });
+  }
+  notes.sort((a, b) => {
+    const statusRank = { canonical: 0, curated: 1, refined: 2, archived: 3, discarded: 4 };
+    const rankDiff = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9);
+    if (rankDiff !== 0) return rankDiff;
+    return b.relevance - a.relevance;
+  });
+  return {
+    action: "retrieved",
+    statuses,
+    count: notes.length,
+    notes,
+  };
+}
+
 async function runCycle(client, args) {
   const structure = await ensureInboxSurface(client);
   const query = String(args.query || "").trim().toLowerCase();
@@ -1327,6 +1932,7 @@ async function runCycle(client, args) {
   const inboxNodes = structure.organizeNodes.filter((node) => node.type === "doc" && node.parentId === structure.inboxFolderId);
 
   const curated = [];
+  const quarantined = [];
   let processedInbox = 0;
   for (const node of inboxNodes) {
     if (processedInbox >= limit) break;
@@ -1334,32 +1940,51 @@ async function runCycle(client, args) {
     if (!docId) continue;
     const doc = await readDoc(client, docId);
     if (query && !String(doc.title || "").toLowerCase().includes(query)) continue;
-    const result = await curateNote(client, { "doc-id": docId });
+    const result = await curateNote(client, { "doc-id": docId, "defer-placement": true });
     processedInbox += 1;
+    if (result.action === "quarantined") {
+      quarantined.push(result);
+      continue;
+    }
     curated.push({
       docId,
       title: result.doc.title,
+      rawText: result.doc.rawText,
+      fields: result.doc.fields,
       status: result.doc.fields.status || "",
+      targetFolderId: result.targetFolderId || null,
       targetFolderName: result.targetFolderName || null,
     });
   }
 
-  const reviewResult = await reviewQueue(client, {
-    query: args.query || "",
-    statuses: args.reviewStatuses || "curated,refined,canonical,archived",
-    limit,
-  });
-  const retrieval = await retrieveNotes(client, {
-    query: args.query || "",
-    statuses: args.retrieveStatuses || "curated,canonical,refined",
-    limit,
-  });
+  const curatedDocs = curated.map((item) => ({
+    docId: item.docId,
+    title: item.title,
+    rawText: item.rawText,
+    fields: item.fields,
+    targetFolderId: item.targetFolderId,
+  }));
+  const relations = await loadPackRelations(client, curatedDocs);
+  const packGroups = buildPackGroups(curatedDocs, relations);
+  const placements = [];
+  for (const group of packGroups) {
+    const placement = await applyPackPlacement(client, structure, group, relations);
+    placements.push(placement);
+  }
+
+  const processedDocIds = curated.map((item) => item.docId);
+  const reviewStatuses = parseStatusList(args.reviewStatuses, "curated,refined,canonical,archived");
+  const retrieveStatuses = parseStatusList(args.retrieveStatuses, "curated,canonical,refined");
+  const reviewResult = await reviewDocIds(client, processedDocIds, reviewStatuses);
+  const retrieval = await retrieveDocIds(client, processedDocIds, retrieveStatuses);
 
   return {
     action: "cycle-complete",
     deterministicFallback: true,
     processedInbox,
     curated,
+    quarantined,
+    placements,
     reviewed: reviewResult.results,
     retrieval,
   };
@@ -1428,11 +2053,15 @@ function decideOutcome({ kind, scores, duplicateDocs }) {
 async function curateNote(client, args) {
   const structure = await ensureInboxSurface(client);
   const doc = await getNote(client, args);
+  const duplicateDocs = await findDuplicateDocs(client, doc);
+  const quarantine = quarantineReasonForDoc(doc, duplicateDocs);
+  if (quarantine) {
+    return quarantineDoc(client, structure, doc, quarantine.reason, quarantine.relatedDocIds);
+  }
   requireCaptureFields(doc);
 
   const kind = normalizeKind(doc.fields.kind_hint, doc.rawText);
   const domain = normalizeDomain(doc.fields.domain_hint, doc.rawText, doc.fields.source);
-  const duplicateDocs = await findDuplicateDocs(client, doc);
   const freshness = scoreFreshness(doc.fields.captured_at, doc.fields.last_reviewed_at);
   const confidence = scoreConfidence(doc.rawText, doc.fields.source, doc.fields.source_ref);
   const complexity = scoreComplexity(doc.rawText, doc.updatesText);
@@ -1503,7 +2132,9 @@ async function curateNote(client, args) {
   });
 
   const targetFolderId = routeFolderId(structure, kind, outcome.status);
-  await moveDocToFolder(client, structure, doc.docId, targetFolderId);
+  if (!args["defer-placement"]) {
+    await moveDocToFolder(client, structure, doc.docId, targetFolderId);
+  }
   const updatedDoc = await readDoc(client, doc.docId);
 
   return {

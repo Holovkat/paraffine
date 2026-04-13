@@ -38,7 +38,7 @@ PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
 pi \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
-  --model ollama/gemma4:26b
+  --model ollama/gemma4:e2b
 ```
 
 Recommended non-interactive launch:
@@ -48,14 +48,14 @@ PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
 pi -p \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
-  --model ollama/gemma4:26b \
+  --model ollama/gemma4:e2b \
   "/paraffine-status"
 ```
 
 Supported characteristics:
 
 - the extension is dormant unless explicitly loaded with `-e`
-- the preferred model is `ollama/gemma4:26b`
+- the preferred model is `ollama/gemma4:e2b`
 - non-interactive runs must emit plain-text command output suitable for cron
 - runtime calls target the repo-owned PARAFFINE CLI only
 
@@ -84,15 +84,37 @@ implementation branch.
 | `/paraffine-retrieve <query> [--limit N] [--statuses a,b,c]` | Query curated PARAFFINE knowledge |
 | `/paraffine-cycle [query] [--limit N]` | Run one scoped curation and review cycle |
 | `/paraffine-review [query] [--limit N] [--statuses a,b,c]` | Run the PARAFFINE review queue directly |
+| `/paraffine-contract` | Show the pack-aware and quarantine-aware operator brief |
 
 The bridge currently invokes the repo-owned CLI surface. It does not become the
 source of truth for note mutations.
+
+## Operator Brief
+
+The Pi bridge must expose a short operator brief that makes the intended
+decision logic explicit. The runtime must not assume the model already
+understands PARAFFINE.
+
+The brief should tell Pi to:
+
+- treat `Inbox` as a staging surface rather than the final home
+- detect whether the current material is a standalone note or a related
+  knowledge pack
+- preserve or create parent-child structure for related notes instead of
+  flattening them
+- place reusable explainer material under its permanent PARA home, usually
+  `Resources`, even when the active project is still shaping it
+- use `Inbox/Quarantine` for malformed, contradictory, or ambiguous notes rather
+  than forcing a speculative placement
+- keep `Quarantine` as an Inbox workflow folder, not a fifth PARA category
+- prefer deterministic CLI actions and auditable outcomes over speculative note
+  rewriting
 
 ## Model Preference Policy
 
 Preferred model:
 
-- `ollama/gemma4:26b`
+- `ollama/gemma4:e2b`
 
 Behavior:
 
@@ -116,7 +138,7 @@ A healthy runtime session should prove:
 Expected `/paraffine-status` output includes:
 
 - `Workspace: ...`
-- `Model: ollama/gemma4:26b (preferred)` or an explicit non-preferred warning
+- `Model: ollama/gemma4:e2b (preferred)` or an explicit non-preferred warning
 - `CLI: .../scripts/paraffine-affine-inbox.js`
 - `Root: ...`
 - the recommended launch command
@@ -134,7 +156,7 @@ Expected message:
 
 ### Missing Preferred Model
 
-If `ollama/gemma4:26b` is not available:
+If `ollama/gemma4:e2b` is not available:
 
 - Pi launch may still succeed with another model
 - the bridge must make that drift visible

@@ -33,6 +33,10 @@ The contract assumes the current PARAFFINE state model:
 
 `captured -> inbox -> curated -> refined -> canonical -> archived / discarded`
 
+Operational hold state:
+
+- `quarantined`
+
 The contract also assumes the current curation signals:
 
 - `confidence`
@@ -60,6 +64,7 @@ The model may emit only one of the following `action` values.
 | `canonicalize` | Promote or merge a stable note into canonical reusable knowledge | `refined -> canonical` or duplicate -> canonical target |
 | `archive` | Preserve historical value while removing from active work | `curated/refined/canonical -> archived` |
 | `discard` | Explicitly reject the note from active knowledge | `curated/refined -> discarded` |
+| `quarantine` | Hold malformed, contradictory, or ambiguous material for manual review | `inbox/curated -> quarantined` |
 
 The model is not allowed to emit:
 
@@ -78,10 +83,10 @@ Every accepted AI response must conform to this logical shape:
 
 ```json
 {
-  "action": "retain | reword | move | refine | canonicalize | archive | discard",
+  "action": "retain | reword | move | refine | canonicalize | archive | discard | quarantine",
   "reason": "Short operator-readable explanation",
   "confidence_score": 0,
-  "status": "curated | refined | canonical | archived | discarded",
+  "status": "curated | refined | canonical | archived | discarded | quarantined",
   "kind": "project | area | resource | archive",
   "domain": "software | business | personal | shared",
   "audit_note": "Short summary of why this action is safe",
@@ -106,6 +111,22 @@ Validation rules:
 - `kind` must map to a PARA destination class
 - `reason` and `audit_note` must be non-empty
 - `changes` may be empty only for `retain`
+
+## Pre-Decision Requirements
+
+Before choosing an action, the AI layer must evaluate:
+
+- whether the material is a standalone note or part of a related knowledge pack
+- whether an existing canonical note or pack already exists in the workspace
+- whether parent-child structure should be preserved or created
+- whether the permanent PARA home differs from the currently active project
+  linkage
+- whether the note is malformed, contradictory, or too ambiguous for safe
+  automatic placement
+
+The model must not treat every inbox item as an isolated singleton. If multiple
+notes clearly belong together, the model should preserve that grouping rather
+than flattening them into a PARA folder.
 
 ## Action-Specific Requirements
 
@@ -238,6 +259,27 @@ Rules:
 - discard is auditable and not equivalent to deletion
 - discarded notes do not re-enter automatic review
 
+### `quarantine`
+
+Use when the note or note set is not safe to place automatically.
+
+Required `changes` fields:
+
+- `quarantine_reason`
+
+Optional:
+
+- `related_note_refs`
+- `suggested_resolution`
+
+Rules:
+
+- target status must be `quarantined`
+- quarantined notes are routed to `Inbox/Quarantine`
+- quarantine is preferred over speculative placement when the note is malformed,
+  contradictory, or lacks a safe canonical target
+- quarantine is an Inbox workflow construct, not a fifth PARA destination
+
 ## Decision Rubric
 
 ### High-Level Routing Matrix
@@ -252,6 +294,8 @@ Rules:
 | High duplication, low confidence | `retain`, `archive`, or `discard` | Unsafe to canonicalize uncertain material |
 | Low relevance, low freshness, still useful historically | `archive` | Retain for audit and future reference |
 | Low confidence, low relevance, high duplication/noise | `discard` | Avoid preserving low-value clutter |
+| Related notes form one explainer set | `retain` or `move` as a pack | Preserve structure instead of flattening siblings |
+| Contradiction, malformed capture, or no safe canonical target | `quarantine` | Hold for manual review instead of forcing placement |
 
 ### Project -> Resource Rule
 
@@ -282,6 +326,20 @@ Use `area` when the note supports ongoing stewardship such as:
 
 Use `move` from `project` to `area` only if the note becomes continuing
 responsibility material rather than reusable reference.
+
+### Pack Preservation Rule
+
+If several notes clearly describe one subject together, the model should treat
+them as one pack and avoid flattening them.
+
+Use this rule:
+
+- choose the permanent PARA home for the pack first
+- preserve or create the parent-child structure inside that home
+- keep example notes, comparison notes, or supporting notes attached to the main
+  explainer rather than placing them as unrelated peers
+- if the pack resolves to multiple incompatible homes, quarantine it instead of
+  splitting it speculatively
 
 ## Deterministic Fallback Contract
 
@@ -433,6 +491,25 @@ Required fallback audit fields:
   "audit_note": "Discard is safe because the material is duplicative and not trustworthy enough to preserve.",
   "changes": {
     "discard_reason": "Low-confidence duplicate with low relevance."
+  }
+}
+```
+
+### `quarantine`
+
+```json
+{
+  "action": "quarantine",
+  "reason": "The note is malformed and cannot be safely placed automatically.",
+  "confidence_score": 91,
+  "status": "quarantined",
+  "kind": "resource",
+  "domain": "software",
+  "audit_note": "Hold in Inbox/Quarantine until the missing capture fields or contradiction are resolved.",
+  "changes": {
+    "quarantine_reason": "Missing required capture fields and no safe canonical target.",
+    "related_note_refs": [],
+    "suggested_resolution": "Add the missing intake fields, then rerun curation."
   }
 }
 ```
