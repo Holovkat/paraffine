@@ -6,12 +6,13 @@
 - [AGENTS.md](../AGENTS.md)
 - [Implementation checklist](00-IMPLEMENTATION-CHECKLIST.md)
 - [Note lifecycle spec](paraffine-note-lifecycle.md)
+- [Runtime and orchestration](paraffine-runtime-orchestration.md)
 
 ## Standards Gap
 
 - The detailed PARAFFINE note lifecycle, scoring model, and review cadence are defined in [paraffine-note-lifecycle.md](paraffine-note-lifecycle.md).
 - A repo-local AFFiNE CLI surface now exists in `scripts/paraffine-affine-inbox.js` for inbox capture, note reads, note updates, PARA curation, deterministic refinement, and archive review.
-- No background scheduling convention exists yet for Pi or cron-driven refinement and archive review.
+- The runtime contract for retrieval plus Pi or cron scheduling now lives in `features/paraffine-runtime-orchestration.md`.
 
 ## 1. Overview
 

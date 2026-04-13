@@ -19,4 +19,4 @@ Check off items here as the final sign-off that work is complete.
 - [x] [GitHub issue #12](https://github.com/Holovkat/paraffine/issues/12) - Implement refinement and archive review workflow
 
 ### Phase 3: Integration
-- [ ] [GitHub issue #13](https://github.com/Holovkat/paraffine/issues/13) - Implement retrieval surface plus Pi or cron orchestration
+- [x] [GitHub issue #13](https://github.com/Holovkat/paraffine/issues/13) - Implement retrieval surface plus Pi or cron orchestration

@@ -6,6 +6,7 @@ This repository is the tracked home for PARAFFINE planning and implementation wo
 
 - `README.md` explains the project purpose, scope, and attribution.
 - `features/paraffine-architecture.md` is the architecture and standards reference for the MVP workflow.
+- `features/paraffine-runtime-orchestration.md` is the runtime contract for retrieval and scheduled PARAFFINE runs.
 - `features/00-IMPLEMENTATION-CHECKLIST.md` is the local sprint checklist and final sign-off ledger.
 
 ## Affine MCP Status

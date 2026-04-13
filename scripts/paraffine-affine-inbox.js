@@ -1154,6 +1154,122 @@ async function reviewQueue(client, args) {
   };
 }
 
+function parseStatusList(input, fallback) {
+  return String(input || fallback)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function listDocsForQuery(client, args) {
+  if (args.query) {
+    const searchResult = await client.tool("search_docs", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      query: String(args.query),
+      matchMode: "substring",
+      limit: Number.parseInt(String(args.limit || "20"), 10),
+    });
+    return asArray(searchResult, "docs", "results");
+  }
+  const listResult = await client.tool("list_docs", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    first: Number.parseInt(String(args.limit || "50"), 10),
+  });
+  return asArray(listResult, "docs").length
+    ? asArray(listResult, "docs")
+    : asArray(listResult, "edges").map((edge) => edge.node).filter(Boolean);
+}
+
+async function retrieveNotes(client, args) {
+  const statuses = parseStatusList(args.statuses, "curated,canonical,refined");
+  const docs = await listDocsForQuery(client, args);
+  const notes = [];
+
+  for (const entry of docs) {
+    const docId = entry.id || entry.docId;
+    if (!docId) continue;
+    const doc = await readDoc(client, docId);
+    const fields = buildReviewFields(doc);
+    if (!fields.status || !statuses.includes(fields.status)) continue;
+    notes.push({
+      docId,
+      title: doc.title,
+      status: fields.status,
+      kind: fields.kind,
+      domain: fields.domain,
+      summary: fields.summary,
+      confidence: fields.confidence,
+      confidence_band: bandForScore(fields.confidence),
+      relevance: fields.relevance,
+      relevance_band: bandForScore(fields.relevance),
+      freshness: fields.freshness,
+      freshness_band: bandForScore(fields.freshness),
+      retained_reason: fields.retained_reason,
+      canonical_ref: fields.canonical_ref || "",
+      source_ref: doc.fields.source_ref || "",
+    });
+  }
+
+  notes.sort((a, b) => {
+    const statusRank = { canonical: 0, curated: 1, refined: 2, archived: 3, discarded: 4 };
+    const rankDiff = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9);
+    if (rankDiff !== 0) return rankDiff;
+    return b.relevance - a.relevance;
+  });
+
+  return {
+    action: "retrieved",
+    statuses,
+    count: notes.length,
+    notes,
+  };
+}
+
+async function runCycle(client, args) {
+  const structure = await ensureInboxSurface(client);
+  const query = String(args.query || "").trim().toLowerCase();
+  const limit = Number.parseInt(String(args.limit || "20"), 10);
+  const inboxNodes = structure.organizeNodes.filter((node) => node.type === "doc" && node.parentId === structure.inboxFolderId);
+
+  const curated = [];
+  let processedInbox = 0;
+  for (const node of inboxNodes) {
+    if (processedInbox >= limit) break;
+    const docId = node.data;
+    if (!docId) continue;
+    const doc = await readDoc(client, docId);
+    if (query && !String(doc.title || "").toLowerCase().includes(query)) continue;
+    const result = await curateNote(client, { "doc-id": docId });
+    processedInbox += 1;
+    curated.push({
+      docId,
+      title: result.doc.title,
+      status: result.doc.fields.status || "",
+      targetFolderName: result.targetFolderName || null,
+    });
+  }
+
+  const reviewResult = await reviewQueue(client, {
+    query: args.query || "",
+    statuses: args.reviewStatuses || "curated,refined,canonical,archived",
+    limit,
+  });
+  const retrieval = await retrieveNotes(client, {
+    query: args.query || "",
+    statuses: args.retrieveStatuses || "curated,canonical,refined",
+    limit,
+  });
+
+  return {
+    action: "cycle-complete",
+    deterministicFallback: true,
+    processedInbox,
+    curated,
+    reviewed: reviewResult.results,
+    retrieval,
+  };
+}
+
 function decideOutcome({ kind, scores, duplicateDocs }) {
   const result = {
     status: "curated",
@@ -1361,7 +1477,7 @@ async function main() {
   const env = loadAffineEnv();
   ensureAffineEnv(env);
   if (!command) {
-    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, curate-note, refine-note, review-note, or review-queue.");
+    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, curate-note, refine-note, review-note, review-queue, retrieve-notes, or run-cycle.");
   }
 
   const client = new McpClient(env);
@@ -1414,6 +1530,16 @@ async function main() {
     }
     if (command === "review-queue") {
       const result = await reviewQueue(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "retrieve-notes") {
+      const result = await retrieveNotes(client, args);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (command === "run-cycle") {
+      const result = await runCycle(client, args);
       console.log(JSON.stringify(result, null, 2));
       return;
     }
