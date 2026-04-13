@@ -5,7 +5,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const DEFAULT_TEMPLATE_TITLE = "PARAFFINE Note Template";
+const DEFAULT_TEMPLATE_TITLE = "PARA Template - Edgeless";
 
 function parseArgs(argv) {
   const args = { _: [] };
