@@ -10,6 +10,10 @@ This repository is the tracked home for PARAFFINE planning and implementation wo
 - `features/paraffine-runtime.md` defines runtime entrypoints and automation flows.
 - `.pi/skills/paraffine/SKILL.md` is the repo-local assistant skill for Pi or another CLI runtime.
 - `features/00-IMPLEMENTATION-CHECKLIST.md` is the local sprint checklist and final sign-off ledger.
+- the current global skill links also point at this repo-local skill source:
+  - `~/.pi/skills/paraffine`
+  - `~/.codex/skills/paraffine`
+  - `~/.agents/skills/paraffine`
 
 ## Affine MCP Status
 
@@ -46,6 +50,8 @@ This repository is the tracked home for PARAFFINE planning and implementation wo
 - use `scripts/paraffine-pi-smoke.sh` for runtime checks
 - use `scripts/paraffine-hourly-cron.sh` for scheduled maintenance launch
 - use `scripts/install-paraffine-hooks.sh` to install the managed post-commit hook path
+- the current machine-wide git hook path is `~/.githooks`
+- repos without a local `core.hooksPath` override inherit the PARAFFINE post-commit hook automatically
 
 ## Operating Rules
 

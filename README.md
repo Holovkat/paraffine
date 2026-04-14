@@ -52,6 +52,12 @@ Repo-local skill surface:
 
 - `.pi/skills/paraffine/SKILL.md`
 
+Installed global skill surfaces:
+
+- `~/.pi/skills/paraffine`
+- `~/.codex/skills/paraffine`
+- `~/.agents/skills/paraffine`
+
 Primary Pi assistant entrypoint:
 
 - `/paraffine`
@@ -59,6 +65,10 @@ Primary Pi assistant entrypoint:
 Managed hook entrypoint:
 
 - `bash scripts/install-paraffine-hooks.sh`
+
+Current machine-wide git hook path:
+
+- `~/.githooks/post-commit`
 
 ## Final Docs
 

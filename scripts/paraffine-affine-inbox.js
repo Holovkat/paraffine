@@ -384,16 +384,20 @@ function captureMarkdown(args) {
   const lines = [
     "# Inbox Capture",
     "",
+    "## Summary",
+    "",
+    args.summary || rawBody || "_Pending summary._",
+    "",
+    "## Working Notes",
+    "",
+    rawBody,
+    "",
     metadataLine("status", "inbox"),
     metadataLine("captured_at", createdAt),
     metadataLine("source", args.source || "unknown"),
     metadataLine("source_ref", args["source-ref"] || ""),
     metadataLine("domain_hint", args["domain-hint"] || ""),
     metadataLine("kind_hint", args["kind-hint"] || ""),
-    "",
-    "## Raw Capture",
-    "",
-    rawBody,
     "",
   ];
   return lines.join("\n");
@@ -402,35 +406,22 @@ function captureMarkdown(args) {
 function paraffineNoteMarkdown(args) {
   const vars = templateVariables(args);
   return [
-    `## ${vars.note_heading}`,
+    `# ${vars.note_heading}`,
     "",
-    "###",
+    "## Summary",
     "",
-    "### Summary",
+    vars.summary || "_Pending summary._",
     "",
-    vars.summary || "",
+    "## Capture Updates",
     "",
-    "###",
+    vars.capture_updates || "_No updates yet._",
     "",
-    "### Raw Capture",
+    "## Working Notes",
     "",
-    vars.raw_capture || "",
+    vars.working_notes || args.body || "_No working notes yet._",
     "",
-    "###",
+    "## Intake",
     "",
-    "### Capture Updates",
-    "",
-    vars.capture_updates || "",
-    "",
-    "###",
-    "",
-    "### Working Notes",
-    "",
-    vars.working_notes || "",
-    "",
-    "###",
-    "",
-    "### Intake",
     metadataLine("status", vars.status || "inbox"),
     metadataLine("captured_at", vars.captured_at || ""),
     metadataLine("source", vars.source || ""),
@@ -448,10 +439,6 @@ function paraffineTemplateMarkdown() {
     "## Summary",
     "",
     "{{summary}}",
-    "",
-    "## Raw Capture",
-    "",
-    "{{raw_capture}}",
     "",
     "## Capture Updates",
     "",
@@ -512,10 +499,12 @@ function sectionBetween(markdown, startHeading, endHeadings) {
 
 function extractMetadataLines(markdown, heading) {
   const body = sectionBetween(markdown, heading, [
-    "Raw Capture",
+    "Summary",
+    "Working Notes",
     "Capture Updates",
     "Curation",
     "Audit Trail",
+    "Review State",
   ]);
   const fields = {};
   for (const line of body.split(/\r?\n/)) {
@@ -540,6 +529,10 @@ function extractCaptureUpdates(markdown) {
 function extractRawCapture(markdown) {
   const sourceContext = sectionBetween(markdown, "Source Context", ["Capture Updates", "Review State", "Audit Trail"]);
   if (sourceContext) return sourceContext;
+  const workingNotes = sectionBetween(markdown, "Working Notes", ["Intake", "Curation", "Audit Trail", "Review State"]);
+  if (workingNotes) return workingNotes;
+  const summary = sectionBetween(markdown, "Summary", ["Capture Updates", "Working Notes", "Intake", "Curation", "Audit Trail", "Review State"]);
+  if (summary) return summary;
   return sectionBetween(markdown, "Raw Capture", ["Capture Updates", "Working Notes", "Intake", "Curation", "Audit Trail", "Review State"]);
 }
 
@@ -675,7 +668,7 @@ function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, cura
     "",
     curationFields.summary || summarizeText(rawText),
     "",
-    "## Raw Capture",
+    "## Working Notes",
     "",
     rawText.trim(),
     "",
@@ -686,9 +679,6 @@ function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, cura
   }
 
   captureSection.push(
-    "## Working Notes",
-    "",
-    "",
     "## Intake",
     "",
     metadataLine("status", captureFields.status || "inbox"),
@@ -897,9 +887,8 @@ function templateVariables(args) {
   return {
     note_heading: args["note-heading"] || args.title || "PARAFFINE Note",
     summary: args.summary || args.body || "Write the short human-readable summary here.",
-    raw_capture: args["raw-capture"] || args.body || "",
     capture_updates: args["capture-updates"] || "",
-    working_notes: args["working-notes"] || "",
+    working_notes: args["working-notes"] || args["raw-capture"] || args.body || "",
     status: args.status || "inbox",
     captured_at: capturedAt,
     source: args.source || "unknown",
@@ -1267,7 +1256,7 @@ function buildQuarantineMarkdown(doc, reason, relatedDocIds = []) {
     metadataLine("domain_hint", doc.fields.domain_hint || ""),
     metadataLine("kind_hint", doc.fields.kind_hint || ""),
     "",
-    "## Raw Capture",
+    "## Working Notes",
     "",
     doc.rawText || "",
     "",
@@ -2577,9 +2566,8 @@ async function executeWritePayload(client, payload) {
     title: targetDoc.title,
     "note-heading": targetDoc.title,
     summary: payload.summary || targetDoc.fields.summary || summarizeText(`${targetDoc.rawText} ${payload.body}`),
-    "raw-capture": targetDoc.rawText || payload.body,
     "capture-updates": mergeCaptureUpdates(targetDoc.updatesText, payload.body, payload.audit_note),
-    "working-notes": targetDoc.fields.working_notes || "",
+    "working-notes": targetDoc.rawText || payload.body,
     status: targetDoc.fields.status || "inbox",
     "captured-at": targetDoc.fields.captured_at || nowStamp(),
     source: targetDoc.fields.source || payload.source,

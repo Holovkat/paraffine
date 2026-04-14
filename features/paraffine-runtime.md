@@ -17,6 +17,12 @@ Repo-local skill path:
 
 - `.pi/skills/paraffine/SKILL.md`
 
+Installed global skill paths:
+
+- `~/.pi/skills/paraffine`
+- `~/.codex/skills/paraffine`
+- `~/.agents/skills/paraffine`
+
 ## Runtime Flows
 
 ### Interactive write or update
@@ -47,6 +53,15 @@ Repo-local skill path:
 2. the hook builds a concise commit summary payload
 3. the executor writes the update into `Inbox`
 4. curation handles final placement later
+
+Current machine-wide hook path:
+
+- `~/.githooks/post-commit`
+
+Behavior:
+
+- repos inherit the PARAFFINE post-commit flow unless they define a local `core.hooksPath` override
+- the current hook delegates to the PARA executor in `/Users/tonyholovka/workspace/PARA`
 
 ## Runtime Defaults
 
