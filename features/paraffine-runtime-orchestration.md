@@ -93,7 +93,7 @@ Example cadence:
 Example cron command:
 
 ```bash
-cd /tmp/paraffine/codex/task-bootstrap && node scripts/paraffine-affine-inbox.js run-cycle --limit 10
+cd /Users/tonyholovka/workspace/PARA && node scripts/paraffine-affine-inbox.js run-cycle --limit 10
 ```
 
 ## Runtime Prerequisites

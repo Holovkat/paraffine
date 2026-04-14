@@ -38,7 +38,7 @@ PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
 pi \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
-  --model ollama/gemma4:e2b
+  --model ollama/gemma4:31b-cloud
 ```
 
 Recommended non-interactive launch:
@@ -48,14 +48,14 @@ PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
 pi -p \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
-  --model ollama/gemma4:e2b \
+  --model ollama/gemma4:31b-cloud \
   "/paraffine-status"
 ```
 
 Supported characteristics:
 
 - the extension is dormant unless explicitly loaded with `-e`
-- the preferred model is `ollama/gemma4:e2b`
+- the preferred model is `ollama/gemma4:31b-cloud`
 - non-interactive runs must emit plain-text command output suitable for cron
 - runtime calls target the repo-owned PARAFFINE CLI only
 
@@ -114,7 +114,7 @@ The brief should tell Pi to:
 
 Preferred model:
 
-- `ollama/gemma4:e2b`
+- `ollama/gemma4:31b-cloud`
 
 Behavior:
 
@@ -138,7 +138,7 @@ A healthy runtime session should prove:
 Expected `/paraffine-status` output includes:
 
 - `Workspace: ...`
-- `Model: ollama/gemma4:e2b (preferred)` or an explicit non-preferred warning
+- `Model: ollama/gemma4:31b-cloud (preferred)` or an explicit non-preferred warning
 - `CLI: .../scripts/paraffine-affine-inbox.js`
 - `Root: ...`
 - the recommended launch command
@@ -156,7 +156,7 @@ Expected message:
 
 ### Missing Preferred Model
 
-If `ollama/gemma4:e2b` is not available:
+If `ollama/gemma4:31b-cloud` is not available:
 
 - Pi launch may still succeed with another model
 - the bridge must make that drift visible

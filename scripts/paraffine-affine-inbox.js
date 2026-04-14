@@ -263,6 +263,48 @@ function captureMarkdown(args) {
   return lines.join("\n");
 }
 
+function paraffineNoteMarkdown(args) {
+  const vars = templateVariables(args);
+  return [
+    `## ${vars.note_heading}`,
+    "",
+    "###",
+    "",
+    "### Summary",
+    "",
+    vars.summary || "",
+    "",
+    "###",
+    "",
+    "### Raw Capture",
+    "",
+    vars.raw_capture || "",
+    "",
+    "###",
+    "",
+    "### Capture Updates",
+    "",
+    vars.capture_updates || "",
+    "",
+    "###",
+    "",
+    "### Working Notes",
+    "",
+    vars.working_notes || "",
+    "",
+    "###",
+    "",
+    "### Intake",
+    metadataLine("status", vars.status || "inbox"),
+    metadataLine("captured_at", vars.captured_at || ""),
+    metadataLine("source", vars.source || ""),
+    metadataLine("source_ref", vars.source_ref || ""),
+    metadataLine("domain_hint", vars.domain_hint || ""),
+    metadataLine("kind_hint", vars.kind_hint || ""),
+    "",
+  ].join("\n");
+}
+
 function paraffineTemplateMarkdown() {
   return [
     "# {{note_heading}}",
@@ -2151,7 +2193,7 @@ async function captureNote(client, args) {
   if (!args.body) throw new Error("--body is required");
   const structure = await ensureInboxSurface(client);
   const title = captureTitle(args);
-  const existing = await searchDocByTitle(client, title);
+  const existing = args["allow-duplicate"] ? null : await searchDocByTitle(client, title);
 
   if (existing?.docId) {
     await client.tool("append_markdown", {
@@ -2163,7 +2205,7 @@ async function captureNote(client, args) {
     return { action: "appended", title, ...structure, doc };
   }
 
-  const created = await createNoteFromTemplate(client, {
+  const createArgs = {
     ...args,
     title,
     folder: "Inbox",
@@ -2172,8 +2214,35 @@ async function captureNote(client, args) {
     "capture-updates": args["capture-updates"] || "",
     "working-notes": args["working-notes"] || "",
     status: "inbox",
-  });
-  const docId = created.doc.docId;
+  };
+
+  let docId;
+  if (args.lightweight || args.direct || args["skip-template"]) {
+    docId = await createInboxDoc(client, title, paraffineNoteMarkdown(createArgs), structure.inboxFolderId);
+    return {
+      action: "created",
+      title,
+      ...structure,
+      doc: {
+        docId,
+        title,
+        markdown: paraffineNoteMarkdown(createArgs),
+        rawText: args.body,
+        updatesText: args["capture-updates"] || "",
+        fields: {
+          status: "inbox",
+          captured_at: createArgs["captured-at"] || createArgs.captured_at || "",
+          source: createArgs.source || "",
+          source_ref: createArgs["source-ref"] || "",
+          domain_hint: createArgs["domain-hint"] || "",
+          kind_hint: createArgs["kind-hint"] || "",
+        },
+      },
+    };
+  } else {
+    const created = await createNoteFromTemplate(client, createArgs);
+    docId = created.doc.docId;
+  }
   const doc = await readDoc(client, docId);
   return { action: "created", title, ...structure, doc };
 }

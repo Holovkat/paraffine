@@ -54,7 +54,7 @@ PARAFFINE_ROOT=/Users/tonyholovka/workspace/PARA \
 pi -p \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/ollama-provider.ts \
   -e /Users/tonyholovka/workspace/pi-extensions/extensions/paraffine.ts \
-  --model ollama/gemma4:e2b \
+  --model ollama/gemma4:31b-cloud \
   "/paraffine-cycle --query Inbox --limit 10"
 ```
 

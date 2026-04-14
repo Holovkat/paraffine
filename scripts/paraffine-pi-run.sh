@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PI_EXTENSIONS_DIR="${PI_EXTENSIONS_DIR:-/Users/tonyholovka/workspace/pi-extensions}"
 PARAFFINE_ROOT="${PARAFFINE_ROOT:-$ROOT_DIR}"
-PARAFFINE_MODEL="${PARAFFINE_MODEL:-ollama/gemma4:e2b}"
+PARAFFINE_MODEL="${PARAFFINE_MODEL:-ollama/gemma4:31b-cloud}"
 
 if [[ $# -lt 1 ]]; then
   echo "Usage: scripts/paraffine-pi-run.sh \"/paraffine-status\"" >&2
