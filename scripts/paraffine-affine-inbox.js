@@ -876,10 +876,11 @@ async function ensureInboxSurface(client) {
 }
 
 async function createInboxDoc(client, title, markdown, inboxFolderId) {
-  const created = await client.tool("create_doc", {
+  const created = await client.tool("create_doc_from_markdown", {
     workspaceId: client.env.AFFINE_WORKSPACE_ID,
     title,
-    content: markdown,
+    markdown,
+    strict: false,
   });
   const docId = created.docId || created.id;
   await client.tool("add_organize_link", {
@@ -968,20 +969,75 @@ async function createNoteFromTemplate(client, args) {
 }
 
 async function readDoc(client, docId) {
-  const result = await client.tool("read_doc", {
+  try {
+    const result = await client.tool("read_doc", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      docId,
+      includeMarkdown: true,
+    });
+    const markdown = result.markdown || "";
+    return {
+      docId,
+      title: result.title || "",
+      markdown,
+      rawText: extractRawCapture(markdown),
+      updatesText: extractCaptureUpdates(markdown),
+      fields: extractFieldsFromMarkdown(markdown),
+    };
+  } catch (error) {
+    const caller = new Error().stack
+      ?.split("\n")
+      .slice(2, 5)
+      .map((line) => line.trim())
+      .join(" | ");
+    error.message = `[read_doc:${docId}] ${error.message || String(error)}${caller ? ` :: ${caller}` : ""}`;
+    throw error;
+  }
+}
+
+function isMissingDocError(error) {
+  const message = String(error?.message || error || "");
+  return message.includes("was not found in workspace");
+}
+
+async function deleteOrganizeNode(client, nodeId) {
+  await client.tool("delete_organize_link", {
     workspaceId: client.env.AFFINE_WORKSPACE_ID,
-    docId,
-    includeMarkdown: true,
+    nodeId,
   });
-  const markdown = result.markdown || "";
-  return {
-    docId,
-    title: result.title || "",
-    markdown,
-    rawText: extractRawCapture(markdown),
-    updatesText: extractCaptureUpdates(markdown),
-    fields: extractFieldsFromMarkdown(markdown),
-  };
+}
+
+async function docExists(client, docId) {
+  try {
+    const result = await client.tool("read_doc", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      docId,
+      includeMarkdown: false,
+    });
+    if (typeof result?.exists === "boolean") return result.exists;
+    return Boolean(result?.docId || result?.id || result?.title || result?.plainText || result?.markdown);
+  } catch (error) {
+    if (isMissingDocError(error)) return false;
+    throw error;
+  }
+}
+
+async function pruneMissingInboxLinks(client, structure) {
+  const inboxNodes = structure.organizeNodes.filter((node) => node.type === "doc" && node.parentId === structure.inboxFolderId);
+  const cleanedOrphans = [];
+  for (const node of inboxNodes) {
+    const docId = node.data;
+    if (!docId) continue;
+    const exists = await docExists(client, docId);
+    if (exists) continue;
+    await deleteOrganizeNode(client, node.id);
+    cleanedOrphans.push({
+      nodeId: node.id,
+      docId,
+      reason: "missing-doc",
+    });
+  }
+  return cleanedOrphans;
 }
 
 async function listAllDocs(client, query) {
@@ -1938,7 +1994,11 @@ async function reviewDocIds(client, docIds, statuses) {
 }
 
 function parseStatusList(input, fallback) {
-  return String(input || fallback)
+  const raw = String(input || fallback)
+    .trim()
+    .toLowerCase();
+  if (!raw || raw === "none" || raw === "false" || raw === "off" || raw === "skip") return [];
+  return raw
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -2028,7 +2088,13 @@ async function retrieveNotes(client, args) {
   for (const entry of docs) {
     const docId = entry.id || entry.docId;
     if (!docId) continue;
-    const doc = await readDoc(client, docId);
+    let doc;
+    try {
+      doc = await readDoc(client, docId);
+    } catch (error) {
+      if (!isMissingDocError(error)) throw error;
+      continue;
+    }
     const fields = buildReviewFields(doc);
     if (!fields.status || !statuses.includes(fields.status)) continue;
     notes.push({
@@ -2068,7 +2134,13 @@ async function retrieveNotes(client, args) {
 async function retrieveDocIds(client, docIds, statuses) {
   const notes = [];
   for (const docId of docIds) {
-    const doc = await readDoc(client, docId);
+    let doc;
+    try {
+      doc = await readDoc(client, docId);
+    } catch (error) {
+      if (!isMissingDocError(error)) throw error;
+      continue;
+    }
     const fields = buildReviewFields(doc);
     if (!fields.status || !statuses.includes(fields.status)) continue;
     notes.push({
@@ -2104,7 +2176,9 @@ async function retrieveDocIds(client, docIds, statuses) {
 }
 
 async function runCycle(client, args) {
-  const structure = await ensureInboxSurface(client);
+  const initialStructure = await ensureInboxSurface(client);
+  const cleanedOrphans = await pruneMissingInboxLinks(client, initialStructure);
+  const structure = cleanedOrphans.length ? await getParaStructure(client) : initialStructure;
   const query = String(args.query || "").trim().toLowerCase();
   const limit = Number.parseInt(String(args.limit || "20"), 10);
   const inboxNodes = structure.organizeNodes.filter((node) => node.type === "doc" && node.parentId === structure.inboxFolderId);
@@ -2116,8 +2190,55 @@ async function runCycle(client, args) {
     if (processedInbox >= limit) break;
     const docId = node.data;
     if (!docId) continue;
-    const doc = await readDoc(client, docId);
+    let doc;
+    try {
+      doc = await readDoc(client, docId);
+    } catch (error) {
+      if (!isMissingDocError(error)) throw error;
+      await deleteOrganizeNode(client, node.id);
+      cleanedOrphans.push({
+        nodeId: node.id,
+        docId,
+        reason: "missing-doc",
+      });
+      continue;
+    }
     if (query && !String(doc.title || "").toLowerCase().includes(query)) continue;
+    const existingStatus = String(doc.fields.status || "").trim().toLowerCase();
+    if (existingStatus && existingStatus !== "inbox") {
+      const existing = buildReviewFields(doc);
+      const targetFolderId = routeFolderId(structure, existing.kind, existing.status);
+      processedInbox += 1;
+      curated.push({
+        docId,
+        title: doc.title,
+        rawText: doc.rawText,
+        fields: {
+          ...doc.fields,
+          status: existing.status,
+          kind: existing.kind,
+          domain: existing.domain,
+          summary: existing.summary,
+          confidence: existing.confidence,
+          complexity: existing.complexity,
+          relevance: existing.relevance,
+          duplication: existing.duplication,
+          freshness: existing.freshness,
+          retained_reason: existing.retained_reason,
+          discard_reason: existing.discard_reason,
+          canonical_ref: existing.canonical_ref,
+          review_due_at: existing.review_due_at,
+          last_reviewed_at: existing.last_reviewed_at,
+          refined_at: existing.refined_at,
+          archived_at: existing.archived_at,
+          discarded_at: existing.discarded_at,
+        },
+        status: existing.status,
+        targetFolderId: targetFolderId || null,
+        targetFolderName: structure.topFolders.find((folder) => folder.id === targetFolderId)?.name || null,
+      });
+      continue;
+    }
     const result = await curateNote(client, { "doc-id": docId, "defer-placement": true });
     processedInbox += 1;
     if (result.action === "quarantined") {
@@ -2151,15 +2272,20 @@ async function runCycle(client, args) {
   }
 
   const processedDocIds = curated.map((item) => item.docId);
-  const reviewStatuses = parseStatusList(args.reviewStatuses, "curated,refined,canonical,archived");
-  const retrieveStatuses = parseStatusList(args.retrieveStatuses, "curated,canonical,refined");
-  const reviewResult = await reviewDocIds(client, processedDocIds, reviewStatuses);
-  const retrieval = await retrieveDocIds(client, processedDocIds, retrieveStatuses);
+  const reviewStatuses = parseStatusList(args.reviewStatuses, "");
+  const retrieveStatuses = parseStatusList(args.retrieveStatuses, "");
+  const reviewResult = reviewStatuses.length
+    ? await reviewDocIds(client, processedDocIds, reviewStatuses)
+    : { action: "reviewed", count: 0, deterministicFallback: true, results: [] };
+  const retrieval = retrieveStatuses.length
+    ? await retrieveDocIds(client, processedDocIds, retrieveStatuses)
+    : { action: "retrieved", statuses: [], count: 0, notes: [] };
 
   return {
     action: "cycle-complete",
     deterministicFallback: true,
     processedInbox,
+    cleanedOrphans,
     curated,
     quarantined,
     placements,

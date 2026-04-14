@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CLI="$ROOT_DIR/scripts/paraffine-affine-inbox.js"
+PARAFFINE_ROOT="${PARAFFINE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+TARGET_REPO="${1:-$PWD}"
+CLI="$PARAFFINE_ROOT/scripts/paraffine-affine-inbox.js"
 
 if [[ ! -f "$CLI" ]]; then
   echo "PARAFFINE post-commit: executor not found at $CLI" >&2
   exit 0
 fi
 
-if ! git -C "$ROOT_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
+if ! git -C "$TARGET_REPO" rev-parse --verify HEAD >/dev/null 2>&1; then
   echo "PARAFFINE post-commit: no commit available yet" >&2
   exit 0
 fi
 
-COMMIT_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
-COMMIT_SUBJECT="$(git -C "$ROOT_DIR" log -1 --pretty=%s)"
-BRANCH_NAME="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)"
-REPO_NAME="$(basename "$ROOT_DIR")"
-CHANGED_FILES="$(git -C "$ROOT_DIR" diff-tree --no-commit-id --name-only -r HEAD | head -n 20)"
+COMMIT_SHA="$(git -C "$TARGET_REPO" rev-parse --short HEAD)"
+COMMIT_SUBJECT="$(git -C "$TARGET_REPO" log -1 --pretty=%s)"
+BRANCH_NAME="$(git -C "$TARGET_REPO" rev-parse --abbrev-ref HEAD)"
+REPO_NAME="$(basename "$TARGET_REPO")"
+CHANGED_FILES="$(git -C "$TARGET_REPO" diff-tree --no-commit-id --name-only -r HEAD | head -n 20)"
 
 BODY=$(cat <<EOF
 Commit: $COMMIT_SHA
