@@ -7,7 +7,7 @@ PARAFFINE_ROOT="${PARAFFINE_ROOT:-$ROOT_DIR}"
 PARAFFINE_MODEL="${PARAFFINE_MODEL:-ollama/gemma4:31b-cloud}"
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: scripts/paraffine-pi-run.sh \"/paraffine-status\"" >&2
+  echo "Usage: scripts/paraffine-pi-run.sh \"/paraffine write a working note in Inbox about ...\"" >&2
   exit 1
 fi
 

@@ -4,9 +4,11 @@ This repository is the tracked home for PARAFFINE planning and implementation wo
 
 ## Repository Layout
 
-- `README.md` explains the project purpose, scope, and attribution.
-- `features/paraffine-architecture.md` is the architecture and standards reference for the MVP workflow.
-- `features/paraffine-runtime-orchestration.md` is the runtime contract for retrieval and scheduled PARAFFINE runs.
+- `README.md` explains the final PARAFFINE operating model.
+- `features/paraffine-operating-model.md` is the source of truth for how PARAFFINE behaves.
+- `features/paraffine-executor-contract.md` defines the local script contract.
+- `features/paraffine-runtime.md` defines runtime entrypoints and automation flows.
+- `.pi/skills/paraffine/SKILL.md` is the repo-local assistant skill for Pi or another CLI runtime.
 - `features/00-IMPLEMENTATION-CHECKLIST.md` is the local sprint checklist and final sign-off ledger.
 
 ## Affine MCP Status
@@ -30,19 +32,25 @@ This repository is the tracked home for PARAFFINE planning and implementation wo
 - The hosted AFFiNE workspace MCP endpoint exposed only read/search tools
 - The standalone `affine-mcp-server` package is the write-capable path now configured for Codex
 - Final changes for this repository should be created in the governed worktree, not in the primary checkout
-- This folder can be used as the clean starting point for PARA note workflows and future PI wiring
+- This repo is the clean tracked home for the PARAFFINE skill, executor, and final docs
 
-## PARAFFINE CLI Ownership
+## PARAFFINE Runtime
 
-- The canonical PARAFFINE workflow script is `scripts/paraffine-affine-inbox.js`
-- Pi extensions should call this repo-owned script path directly or via `PARAFFINE_CLI_PATH`
-- Scheduled maintenance jobs should use this same script path as the stable entrypoint
-- Do not treat temporary task worktrees as part of the supported runtime contract
+- the current local executor is `scripts/paraffine-affine-inbox.js`
+- Pi or another CLI is the instigator
+- the PARAFFINE skill owns the reasoning and workflow
+- the executor script performs validated AFFiNE operations
+- the AFFiNE transport layer remains the write path unless implementation proves a cleaner direct route
+- the primary assistant surface is `/paraffine`
+- use `scripts/paraffine-pi-run.sh` for repeatable Pi launch
+- use `scripts/paraffine-pi-smoke.sh` for runtime checks
+- use `scripts/paraffine-hourly-cron.sh` for scheduled maintenance launch
+- use `scripts/install-paraffine-hooks.sh` to install the managed post-commit hook path
 
-## Pi Runtime Contract
+## Operating Rules
 
-- PARA owns the runtime contract docs and the AFFiNE-backed CLI
-- `pi-extensions` owns the dormant bridge in `extensions/paraffine.ts`
-- Preferred Pi model is `ollama/gemma4:31b-cloud`
-- Use `scripts/paraffine-pi-run.sh` for repeatable non-interactive Pi launch
-- Use `scripts/paraffine-pi-smoke.sh` for the scoped Sprint 2 smoke flow
+- note-taking writes or updates working notes in `Inbox`
+- retrieval finds existing knowledge through the same assistant surface
+- curation is the only place that decides PARA residence
+- `Inbox/Quarantine` belongs to curation only
+- commit-hook updates should create low-friction change notes without forcing the user to ask every time
