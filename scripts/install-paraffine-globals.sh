@@ -15,7 +15,9 @@ ln -sfn "$PARAFFINE_ROOT/.pi/skills/paraffine" "$HOME/.codex/skills/paraffine"
 cat > "$HOME/.githooks/post-commit" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-PARAFFINE_ROOT="$PARAFFINE_ROOT" "\$PARAFFINE_ROOT/scripts/paraffine-post-commit.sh" "\$(git rev-parse --show-toplevel)"
+PARAFFINE_ROOT="$PARAFFINE_ROOT"
+export PARAFFINE_ROOT
+"\$PARAFFINE_ROOT/scripts/paraffine-post-commit.sh" "\$(git rev-parse --show-toplevel)"
 EOF
 
 chmod +x "$HOME/.githooks/post-commit"
