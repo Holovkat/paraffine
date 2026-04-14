@@ -13,6 +13,26 @@ Use this skill whenever the user wants to:
 - run PARAFFINE background curation
 - process commit-derived change notes
 
+## Commit Notes
+
+When this skill is committing work in any repo that uses the PARAFFINE post-commit hook, it must provide the note content explicitly in the commit body instead of expecting the hook to infer it.
+
+Use this structure in the commit body:
+
+```text
+Changed: Short human-readable change title
+Why: Why the change was needed
+How: How the change was implemented
+Validated: How the change was checked
+```
+
+Rules:
+
+- keep each field short and human-readable
+- do not list changed files
+- do not rely on GitHub issue or PR text as the primary note source
+- treat the hook as a formatter and delivery path, not the reasoning layer
+
 ## Operating Model
 
 PARAFFINE has one assistant surface.

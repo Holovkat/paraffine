@@ -68,10 +68,13 @@ Behavior:
 - the current hook delegates to the PARA executor in `/Users/tonyholovka/workspace/PARA`
 - `scripts/install-paraffine-globals.sh` is the canonical installer for the global skill links and machine-wide git hook path
 - automatic commit notes are intentionally human-readable and avoid file-by-file dumps
-- the hook will use optional commit message sections to improve the note body:
+- commit-driven note content must be provided by the committing agent in the commit body
+- the hook is only the formatter and delivery path
+- preferred commit body fields are:
+  - `Changed:`
   - `Why:`
   - `How:`
-  - `Validation:`
+  - `Validated:`
 
 ## Runtime Defaults
 

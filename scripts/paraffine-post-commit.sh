@@ -34,15 +34,13 @@ body = os.environ.get("COMMIT_BODY", "").replace("\r", "").strip()
 branch = os.environ["BRANCH_NAME"].strip()
 
 prefix_re = re.compile(r"^[a-z]+(?:\([^)]+\))?!?:\s*", re.IGNORECASE)
-type_match = re.match(r"^([a-z]+)(?:\([^)]+\))?!?:", subject_raw, re.IGNORECASE)
-commit_type = type_match.group(1).lower() if type_match else ""
 subject = prefix_re.sub("", subject_raw).strip() or "Updated the project."
 subject = subject[:1].upper() + subject[1:]
 if subject[-1:] not in ".!?":
     subject += "."
 
 def parse_sections(text: str):
-    sections = {"why": [], "how": [], "validation": []}
+    sections = {"changed": [], "why": [], "how": [], "validation": []}
     freeform = []
     current_key = None
 
@@ -53,9 +51,10 @@ def parse_sections(text: str):
             continue
         matched = False
         for key, labels in {
+            "changed": ("paraffine-changed", "changed", "change", "title"),
             "why": ("why", "reason", "context"),
             "how": ("how", "implementation", "approach", "outcome", "result", "impact"),
-            "validation": ("validation", "validated", "verified", "test", "tests", "testing"),
+            "validation": ("validated", "validation", "verified", "test", "tests", "testing"),
         }.items():
             for label in labels:
                 prefix = f"{label}:"
@@ -86,44 +85,44 @@ def parse_sections(text: str):
     if current:
         paragraphs.append(" ".join(current).strip())
 
-    if not sections["why"] and paragraphs:
-        sections["why"].append(paragraphs[0])
-    if not sections["how"] and len(paragraphs) > 1:
-        sections["how"].append(paragraphs[1])
-    if not sections["validation"] and len(paragraphs) > 2:
-        sections["validation"].append(paragraphs[2])
+    if not sections["changed"] and paragraphs:
+        sections["changed"].append(paragraphs[0])
+    if not sections["why"] and len(paragraphs) > 1:
+        sections["why"].append(paragraphs[1])
+    if not sections["how"] and len(paragraphs) > 2:
+        sections["how"].append(paragraphs[2])
+    if not sections["validation"] and len(paragraphs) > 3:
+        sections["validation"].append(paragraphs[3])
     return sections
 
+def clean_markdown(text: str):
+    value = str(text or "")
+    value = re.sub(r"```[\s\S]*?```", " ", value)
+    value = re.sub(r"`([^`]*)`", r"\1", value)
+    value = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", value)
+    value = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", value)
+    value = re.sub(r"^#{1,6}\s*", "", value, flags=re.MULTILINE)
+    value = re.sub(r"^\s*[-*+]\s*", "", value, flags=re.MULTILINE)
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
 sections = parse_sections(body)
+changed = clean_markdown(" ".join(sections["changed"]).strip()) or subject
+why = clean_markdown(" ".join(sections["why"]).strip())
+how = clean_markdown(" ".join(sections["how"]).strip())
+validation = clean_markdown(" ".join(sections["validation"]).strip())
 
-default_why = {
-    "fix": "This change addresses a specific problem in the current workflow.",
-    "feat": "This change adds requested capability to the current workflow.",
-    "docs": "This change makes the operating guidance clearer and easier to follow.",
-    "refactor": "This change improves the implementation shape without changing the intended outcome.",
-    "chore": "This change keeps the project setup and maintenance flow in good order.",
-}.get(commit_type, "The commit message did not include extra rationale.")
-
-default_how = {
-    "fix": "Adjusted the current implementation to remove the identified problem.",
-    "feat": "Added the requested behavior into the current workflow.",
-    "docs": "Updated the written guidance and setup material for day-to-day use.",
-    "refactor": "Reshaped the implementation to keep the same intent with a cleaner structure.",
-    "chore": "Tidied the supporting setup and maintenance path around the current workflow.",
-}.get(commit_type, "Updated the current workflow in line with the commit.")
-
-why = " ".join(sections["why"]).strip() or default_why
-how = " ".join(sections["how"]).strip() or default_how
-validation = " ".join(sections["validation"]).strip() or "Validation details were not recorded in the commit message."
-
-narrative = " ".join([why, how, validation]).strip()
+narrative_parts = [part for part in (why, how, validation) if part]
+narrative = " ".join(narrative_parts).strip()
+if not narrative:
+    narrative = clean_markdown(body) or changed
 
 parts = [
-    f"###### Changed: {subject}",
+    f"###### Changed: {changed}",
     "",
-    commit_date,
-    "",
-    narrative,
+    f"- {commit_date}",
+    f"- {narrative}",
     "",
     f"Commit `{commit_sha}` on `{branch}`.",
 ]

@@ -98,14 +98,15 @@ After that:
 - repos inherit the PARAFFINE post-commit hook unless they define a local `core.hooksPath`
 - post-commit notes are written as short human-readable change notes, not file inventories
 
-If you want better automatic notes from commits, use optional commit message sections like:
+Commit-driven notes should be supplied by the committing agent in the commit body. Use this shape:
 
 ```text
 feat: improve PARAFFINE note formatting
 
+Changed: Improve PARAFFINE note formatting
 Why: Make automatic notes readable without opening GitHub.
 How: Adjust the formatter so commit notes use quiet bullet points instead of repeated headings.
-Validation: Tested with the global post-commit hook dry run and a live note write.
+Validated: Tested with the global post-commit hook dry run and a live note write.
 ```
 
 ## Pi Runtime
