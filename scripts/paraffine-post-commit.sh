@@ -16,17 +16,19 @@ if ! git -C "$TARGET_REPO" rev-parse --verify HEAD >/dev/null 2>&1; then
 fi
 
 COMMIT_SHA="$(git -C "$TARGET_REPO" rev-parse --short HEAD)"
+COMMIT_DATE="$(git -C "$TARGET_REPO" log -1 --pretty=%cI)"
 COMMIT_SUBJECT="$(git -C "$TARGET_REPO" log -1 --pretty=%s)"
 COMMIT_BODY="$(git -C "$TARGET_REPO" log -1 --pretty=%b)"
 BRANCH_NAME="$(git -C "$TARGET_REPO" rev-parse --abbrev-ref HEAD)"
 REPO_NAME="$(basename "$TARGET_REPO")"
-export COMMIT_SHA COMMIT_SUBJECT COMMIT_BODY BRANCH_NAME
+export COMMIT_SHA COMMIT_DATE COMMIT_SUBJECT COMMIT_BODY BRANCH_NAME
 
 BODY="$(python3 <<'PY'
 import os
 import re
 
 commit_sha = os.environ["COMMIT_SHA"].strip()
+commit_date = os.environ["COMMIT_DATE"].strip()
 subject_raw = os.environ["COMMIT_SUBJECT"].strip()
 body = os.environ.get("COMMIT_BODY", "").replace("\r", "").strip()
 branch = os.environ["BRANCH_NAME"].strip()
@@ -114,11 +116,13 @@ why = " ".join(sections["why"]).strip() or default_why
 how = " ".join(sections["how"]).strip() or default_how
 validation = " ".join(sections["validation"]).strip() or "Validation details were not recorded in the commit message."
 
+narrative = " ".join([why, how, validation]).strip()
+
 parts = [
-    f"- Changed: {subject}",
-    f"- Why: {why}",
-    f"- How: {how}",
-    f"- Validated: {validation}",
+    f"###### Changed: {subject}",
+    "",
+    f"- {commit_date}",
+    f"- {narrative}",
     "",
     f"Commit `{commit_sha}` on `{branch}`.",
 ]
