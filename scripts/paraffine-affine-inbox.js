@@ -734,16 +734,25 @@ function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, cura
 
 function appendMarkdown(body) {
   const createdAt = nowStamp();
-  const lines = String(body || "").trim().split(/\r?\n/);
-  if (!lines[0]) return "";
-  const [first, ...rest] = lines;
-  const formatted = [`\n- ${createdAt}: ${first.trim()}`];
-  for (const line of rest) {
-    if (!line.trim()) {
-      formatted.push("");
-      continue;
-    }
-    formatted.push(`  ${line}`);
+  const lines = String(body || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return "";
+
+  const first = lines[0];
+  const hasHtmlTitle = /^<h6>.*<\/h6>$/i.test(first);
+  const titleLine = hasHtmlTitle ? first : "";
+  const contentLines = hasHtmlTitle ? lines.slice(1) : lines;
+  const narrative = contentLines.join(" ").trim();
+
+  const formatted = [""];
+  if (titleLine) {
+    formatted.push(titleLine, "");
+  }
+  formatted.push(createdAt);
+  if (narrative) {
+    formatted.push("", narrative);
   }
   formatted.push("");
   return formatted.join("\n");
