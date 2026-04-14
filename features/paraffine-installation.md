@@ -104,7 +104,7 @@ If you want better automatic notes from commits, use optional commit message sec
 feat: improve PARAFFINE note formatting
 
 Why: Make automatic notes readable without opening GitHub.
-Outcome: Commit notes now summarise the change in plain language.
+How: Adjust the formatter so commit notes use quiet bullet points instead of repeated headings.
 Validation: Tested with the global post-commit hook dry run and a live note write.
 ```
 

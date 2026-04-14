@@ -70,7 +70,7 @@ Behavior:
 - automatic commit notes are intentionally human-readable and avoid file-by-file dumps
 - the hook will use optional commit message sections to improve the note body:
   - `Why:`
-  - `Outcome:`
+  - `How:`
   - `Validation:`
 
 ## Runtime Defaults

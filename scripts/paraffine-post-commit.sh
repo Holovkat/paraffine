@@ -40,7 +40,7 @@ if subject[-1:] not in ".!?":
     subject += "."
 
 def parse_sections(text: str):
-    sections = {"why": [], "outcome": [], "validation": []}
+    sections = {"why": [], "how": [], "validation": []}
     freeform = []
     current_key = None
 
@@ -52,7 +52,7 @@ def parse_sections(text: str):
         matched = False
         for key, labels in {
             "why": ("why", "reason", "context"),
-            "outcome": ("outcome", "result", "impact"),
+            "how": ("how", "implementation", "approach", "outcome", "result", "impact"),
             "validation": ("validation", "validated", "verified", "test", "tests", "testing"),
         }.items():
             for label in labels:
@@ -86,8 +86,8 @@ def parse_sections(text: str):
 
     if not sections["why"] and paragraphs:
         sections["why"].append(paragraphs[0])
-    if not sections["outcome"] and len(paragraphs) > 1:
-        sections["outcome"].append(paragraphs[1])
+    if not sections["how"] and len(paragraphs) > 1:
+        sections["how"].append(paragraphs[1])
     if not sections["validation"] and len(paragraphs) > 2:
         sections["validation"].append(paragraphs[2])
     return sections
@@ -102,37 +102,25 @@ default_why = {
     "chore": "This change keeps the project setup and maintenance flow in good order.",
 }.get(commit_type, "The commit message did not include extra rationale.")
 
-default_outcome = {
-    "fix": "The affected workflow should now behave more reliably.",
-    "feat": "The new behavior is now available for normal use.",
-    "docs": "The updated guidance is now available for future setup and day-to-day use.",
-    "refactor": "The implementation is now cleaner to maintain and easier to build on.",
-    "chore": "The project maintenance state is now cleaner and more consistent.",
-}.get(commit_type, "The change has been committed and is ready for the next normal follow-up step.")
+default_how = {
+    "fix": "Adjusted the current implementation to remove the identified problem.",
+    "feat": "Added the requested behavior into the current workflow.",
+    "docs": "Updated the written guidance and setup material for day-to-day use.",
+    "refactor": "Reshaped the implementation to keep the same intent with a cleaner structure.",
+    "chore": "Tidied the supporting setup and maintenance path around the current workflow.",
+}.get(commit_type, "Updated the current workflow in line with the commit.")
 
 why = " ".join(sections["why"]).strip() or default_why
-outcome = " ".join(sections["outcome"]).strip() or default_outcome
+how = " ".join(sections["how"]).strip() or default_how
 validation = " ".join(sections["validation"]).strip() or "Validation details were not recorded in the commit message."
 
 parts = [
-    f"Commit: {commit_sha}",
-    f"Branch: {branch}",
+    f"- Changed: {subject}",
+    f"- Why: {why}",
+    f"- How: {how}",
+    f"- Validated: {validation}",
     "",
-    "## What Changed",
-    "",
-    subject,
-    "",
-    "## Why",
-    "",
-    why,
-    "",
-    "## Outcome",
-    "",
-    outcome,
-    "",
-    "## Validation",
-    "",
-    validation,
+    f"Commit `{commit_sha}` on `{branch}`.",
 ]
 
 print("\n".join(parts))

@@ -734,7 +734,19 @@ function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, cura
 
 function appendMarkdown(body) {
   const createdAt = nowStamp();
-  return `\n## Change Note ${createdAt}\n\n${body.trim()}\n`;
+  const lines = String(body || "").trim().split(/\r?\n/);
+  if (!lines[0]) return "";
+  const [first, ...rest] = lines;
+  const formatted = [`\n- ${createdAt}: ${first.trim()}`];
+  for (const line of rest) {
+    if (!line.trim()) {
+      formatted.push("");
+      continue;
+    }
+    formatted.push(`  ${line}`);
+  }
+  formatted.push("");
+  return formatted.join("\n");
 }
 
 async function searchDocByTitle(client, title) {
