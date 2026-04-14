@@ -412,7 +412,7 @@ function paraffineNoteMarkdown(args) {
     "",
     vars.summary || "_Pending summary._",
     "",
-    "## Capture Updates",
+    "## Change Notes",
     "",
     vars.capture_updates || "_No updates yet._",
     "",
@@ -440,7 +440,7 @@ function paraffineTemplateMarkdown() {
     "",
     "{{summary}}",
     "",
-    "## Capture Updates",
+    "## Change Notes",
     "",
     "{{capture_updates}}",
     "",
@@ -501,6 +501,7 @@ function extractMetadataLines(markdown, heading) {
   const body = sectionBetween(markdown, heading, [
     "Summary",
     "Working Notes",
+    "Change Notes",
     "Capture Updates",
     "Curation",
     "Audit Trail",
@@ -516,24 +517,27 @@ function extractMetadataLines(markdown, heading) {
 
 function extractCaptureUpdates(markdown) {
   const sections = [];
+  const singularSections = [];
+  const changeNotes = sectionBetween(markdown, "Change Notes", ["Working Notes", "Intake", "Curation", "Review State", "Audit Trail"]);
+  if (changeNotes) sections.push(changeNotes);
   const plural = sectionBetween(markdown, "Capture Updates", ["Working Notes", "Intake", "Curation", "Review State", "Audit Trail"]);
   if (plural) sections.push(plural);
-  const regex = /^#{2,3} Capture Update [^\n]*\n([\s\S]*?)(?=^#{2,3} |\Z)/gm;
+  const regex = /^#{2,3} (?:Capture Update|Change Note) [^\n]*\n([\s\S]*?)(?=^#{2,3} |\Z)/gm;
   let match;
   while ((match = regex.exec(String(markdown || "")))) {
-    sections.push(match[1].trim());
+    singularSections.push(match[1].trim());
   }
-  return sections.filter(Boolean).join("\n\n");
+  return [...sections, ...singularSections].filter(Boolean).join("\n\n");
 }
 
 function extractRawCapture(markdown) {
-  const sourceContext = sectionBetween(markdown, "Source Context", ["Capture Updates", "Review State", "Audit Trail"]);
+  const sourceContext = sectionBetween(markdown, "Source Context", ["Change Notes", "Capture Updates", "Review State", "Audit Trail"]);
   if (sourceContext) return sourceContext;
   const workingNotes = sectionBetween(markdown, "Working Notes", ["Intake", "Curation", "Audit Trail", "Review State"]);
   if (workingNotes) return workingNotes;
-  const summary = sectionBetween(markdown, "Summary", ["Capture Updates", "Working Notes", "Intake", "Curation", "Audit Trail", "Review State"]);
+  const summary = sectionBetween(markdown, "Summary", ["Change Notes", "Capture Updates", "Working Notes", "Intake", "Curation", "Audit Trail", "Review State"]);
   if (summary) return summary;
-  return sectionBetween(markdown, "Raw Capture", ["Capture Updates", "Working Notes", "Intake", "Curation", "Audit Trail", "Review State"]);
+  return sectionBetween(markdown, "Raw Capture", ["Change Notes", "Capture Updates", "Working Notes", "Intake", "Curation", "Audit Trail", "Review State"]);
 }
 
 function extractFieldsFromMarkdown(markdown) {
@@ -675,7 +679,7 @@ function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, cura
   ];
 
   if (updatesText && updatesText.trim()) {
-    captureSection.push("## Capture Updates", "", updatesText.trim(), "");
+    captureSection.push("## Change Notes", "", updatesText.trim(), "");
   }
 
   captureSection.push(
@@ -730,7 +734,7 @@ function buildCuratedMarkdown({ title, captureFields, rawText, updatesText, cura
 
 function appendMarkdown(body) {
   const createdAt = nowStamp();
-  return `\n## Capture Update ${createdAt}\n\n${body.trim()}\n`;
+  return `\n## Change Note ${createdAt}\n\n${body.trim()}\n`;
 }
 
 async function searchDocByTitle(client, title) {
@@ -1638,7 +1642,7 @@ function buildRefinedMarkdown({ title, captureFields, rawText, updatesText, cura
   ];
 
   if (updatesText && updatesText.trim()) {
-    sections.push("## Capture Updates", "", updatesText.trim(), "");
+    sections.push("## Change Notes", "", updatesText.trim(), "");
   }
 
   sections.push(

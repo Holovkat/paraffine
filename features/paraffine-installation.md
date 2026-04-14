@@ -96,6 +96,17 @@ After that:
 
 - `skill:paraffine` should resolve from Pi/Codex
 - repos inherit the PARAFFINE post-commit hook unless they define a local `core.hooksPath`
+- post-commit notes are written as short human-readable change notes, not file inventories
+
+If you want better automatic notes from commits, use optional commit message sections like:
+
+```text
+feat: improve PARAFFINE note formatting
+
+Why: Make automatic notes readable without opening GitHub.
+Outcome: Commit notes now summarise the change in plain language.
+Validation: Tested with the global post-commit hook dry run and a live note write.
+```
 
 ## Pi Runtime
 

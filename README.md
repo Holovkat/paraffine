@@ -76,6 +76,8 @@ Current machine-wide git hook path:
 
 - `~/.githooks/post-commit`
 
+The post-commit hook writes short human-readable change notes into `Inbox` and can use optional commit message fields such as `Why:`, `Outcome:`, and `Validation:`.
+
 Installation and setup:
 
 - [Installation guide](features/paraffine-installation.md)
