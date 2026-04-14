@@ -234,6 +234,142 @@ function captureTitle(args) {
   return `Inbox ${nowStamp()}`;
 }
 
+function parseJsonPayload(raw, sourceLabel = "payload") {
+  try {
+    return JSON.parse(String(raw || ""));
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${sourceLabel}: ${error.message}`);
+  }
+}
+
+function loadActionPayload(args) {
+  if (args["payload-stdin"]) {
+    return parseJsonPayload(fs.readFileSync(0, "utf8"), "stdin");
+  }
+  if (args["payload-file"]) {
+    const payloadPath = path.resolve(String(args["payload-file"]));
+    if (!fs.existsSync(payloadPath)) {
+      throw new Error(`Payload file not found: ${payloadPath}`);
+    }
+    return parseJsonPayload(fs.readFileSync(payloadPath, "utf8"), payloadPath);
+  }
+  if (args.payload) {
+    return parseJsonPayload(args.payload, "--payload");
+  }
+  throw new Error("Expected --payload or --payload-file.");
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeParaHome(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "projects" || raw === "project") return "Projects";
+  if (raw === "areas" || raw === "area") return "Areas";
+  if (raw === "resources" || raw === "resource") return "Resources";
+  if (raw === "archives" || raw === "archive") return "Archives";
+  if (raw === "quarantine") return "Quarantine";
+  throw new Error(`Unknown PARA home: ${value}`);
+}
+
+function requireArray(value, field) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`Expected non-empty array for ${field}.`);
+  }
+  return value;
+}
+
+function validateWritePayload(payload) {
+  if (payload.mode !== "write") throw new Error("Write payload must use mode=write.");
+  if (!["create", "append", "update"].includes(payload.operation)) {
+    throw new Error("Write payload operation must be create, append, or update.");
+  }
+  if (!nonEmptyString(payload.body)) throw new Error("Write payload requires body.");
+  if (!nonEmptyString(payload.audit_note)) throw new Error("Write payload requires audit_note.");
+  const targetLocation = payload.target_location ? String(payload.target_location) : "Inbox";
+  if (targetLocation !== "Inbox") {
+    throw new Error("Write payloads may only target Inbox.");
+  }
+  if (payload.target_para_home) {
+    throw new Error("Write payloads may not assign PARA residence.");
+  }
+  if (payload.operation === "create" && !nonEmptyString(payload.title)) {
+    throw new Error("Write create payload requires title.");
+  }
+  if ((payload.operation === "append" || payload.operation === "update") && !payload.target_doc_id && !nonEmptyString(payload.title)) {
+    throw new Error("Write append/update payload requires target_doc_id or title.");
+  }
+  return {
+    mode: "write",
+    operation: payload.operation,
+    title: payload.title ? String(payload.title).trim() : "",
+    body: String(payload.body),
+    target_doc_id: payload.target_doc_id ? String(payload.target_doc_id) : "",
+    target_location: "Inbox",
+    summary: payload.summary ? String(payload.summary) : "",
+    audit_note: String(payload.audit_note).trim(),
+    source: payload.source ? String(payload.source) : "skill",
+    source_ref: payload.source_ref ? String(payload.source_ref) : "paraffine-skill",
+    domain_hint: payload.domain_hint ? String(payload.domain_hint) : "shared",
+    kind_hint: payload.kind_hint ? String(payload.kind_hint) : "resource",
+  };
+}
+
+function validateRetrievePayload(payload) {
+  if (payload.mode !== "retrieve") throw new Error("Retrieve payload must use mode=retrieve.");
+  if (!nonEmptyString(payload.query)) throw new Error("Retrieve payload requires query.");
+  if (!nonEmptyString(payload.audit_note)) throw new Error("Retrieve payload requires audit_note.");
+  return {
+    mode: "retrieve",
+    query: String(payload.query).trim(),
+    limit: Number.parseInt(String(payload.limit || "10"), 10),
+    statuses: Array.isArray(payload.statuses) ? payload.statuses.map((item) => String(item)) : null,
+    audit_note: String(payload.audit_note).trim(),
+  };
+}
+
+function validateCurationPayload(payload) {
+  if (payload.mode !== "curate") throw new Error("Curation payload must use mode=curate.");
+  if (!["place", "group", "quarantine", "archive", "discard", "refine"].includes(payload.operation)) {
+    throw new Error("Curation payload operation must be place, group, quarantine, archive, discard, or refine.");
+  }
+  if (!nonEmptyString(payload.audit_note)) throw new Error("Curation payload requires audit_note.");
+  const sourceDocIds = requireArray(payload.source_doc_ids, "source_doc_ids").map((item) => String(item));
+  const targetParaHome = payload.target_para_home ? normalizeParaHome(payload.target_para_home) : "";
+  if (payload.operation === "quarantine" && targetParaHome && targetParaHome !== "Quarantine") {
+    throw new Error("Quarantine payloads may only target Quarantine.");
+  }
+  if (["place", "group", "archive", "discard", "refine"].includes(payload.operation) && !targetParaHome) {
+    throw new Error("Curation payload requires target_para_home for this operation.");
+  }
+  return {
+    mode: "curate",
+    operation: payload.operation,
+    source_doc_ids: sourceDocIds,
+    target_para_home: targetParaHome || (payload.operation === "quarantine" ? "Quarantine" : ""),
+    grouping: payload.grouping && typeof payload.grouping === "object" ? payload.grouping : {},
+    audit_note: String(payload.audit_note).trim(),
+  };
+}
+
+function validateActionEnvelope(payload) {
+  if (Array.isArray(payload)) {
+    if (payload.length === 0) throw new Error("Expected at least one action in payload array.");
+    return { actions: payload };
+  }
+  if (payload && typeof payload === "object" && Array.isArray(payload.actions)) {
+    if (payload.actions.length === 0) throw new Error("Expected at least one action in actions.");
+    return {
+      actions: payload.actions,
+      audit_note: nonEmptyString(payload.audit_note) ? String(payload.audit_note).trim() : "",
+      label: nonEmptyString(payload.label) ? String(payload.label).trim() : "",
+    };
+  }
+  return { actions: [payload] };
+}
+
 function templateTitle(args) {
   return String(args["template-title"] || DEFAULT_TEMPLATE_TITLE).trim();
 }
@@ -2266,18 +2402,310 @@ async function getNote(client, args) {
   return readDoc(client, existing.docId);
 }
 
+async function resolveTargetDoc(client, payload) {
+  if (payload.target_doc_id) {
+    return readDoc(client, payload.target_doc_id);
+  }
+  const existing = await searchDocByTitle(client, payload.title);
+  if (!existing?.docId) {
+    throw new Error(`No note found for title: ${payload.title}`);
+  }
+  return readDoc(client, existing.docId);
+}
+
+function mergeCaptureUpdates(existingUpdates, newBody, auditNote) {
+  const additions = [String(newBody || "").trim(), auditNote ? `\nAudit: ${auditNote}` : ""].join("").trim();
+  return [String(existingUpdates || "").trim(), additions].filter(Boolean).join("\n\n");
+}
+
+async function executeWritePayload(client, payload) {
+  const structure = await ensureInboxSurface(client);
+  if (payload.operation === "create") {
+    return captureNote(client, {
+      title: payload.title,
+      body: payload.body,
+      source: payload.source,
+      "source-ref": payload.source_ref,
+      "domain-hint": payload.domain_hint,
+      "kind-hint": payload.kind_hint,
+      summary: payload.summary || payload.body,
+      lightweight: true,
+    });
+  }
+
+  const targetDoc = await resolveTargetDoc(client, payload);
+  if (payload.operation === "append") {
+    await client.tool("append_markdown", {
+      workspaceId: client.env.AFFINE_WORKSPACE_ID,
+      docId: targetDoc.docId,
+      markdown: appendMarkdown(payload.body),
+    });
+    return {
+      action: "appended",
+      audit_note: payload.audit_note,
+      doc: await readDoc(client, targetDoc.docId),
+    };
+  }
+
+  const updatedMarkdown = paraffineNoteMarkdown({
+    title: targetDoc.title,
+    "note-heading": targetDoc.title,
+    summary: payload.summary || targetDoc.fields.summary || summarizeText(`${targetDoc.rawText} ${payload.body}`),
+    "raw-capture": targetDoc.rawText || payload.body,
+    "capture-updates": mergeCaptureUpdates(targetDoc.updatesText, payload.body, payload.audit_note),
+    "working-notes": targetDoc.fields.working_notes || "",
+    status: targetDoc.fields.status || "inbox",
+    "captured-at": targetDoc.fields.captured_at || nowStamp(),
+    source: targetDoc.fields.source || payload.source,
+    "source-ref": targetDoc.fields.source_ref || payload.source_ref,
+    "domain-hint": targetDoc.fields.domain_hint || payload.domain_hint,
+    "kind-hint": targetDoc.fields.kind_hint || payload.kind_hint,
+  });
+
+  await client.tool("replace_doc_with_markdown", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId: targetDoc.docId,
+    markdown: updatedMarkdown,
+    strict: false,
+  });
+
+  return {
+    action: "updated",
+    audit_note: payload.audit_note,
+    doc: await readDoc(client, targetDoc.docId),
+  };
+}
+
+function paraHomeToFolderId(structure, paraHome) {
+  if (paraHome === "Projects") return structure.projectsFolderId;
+  if (paraHome === "Areas") return structure.areasFolderId;
+  if (paraHome === "Resources") return structure.resourcesFolderId;
+  if (paraHome === "Archives") return structure.archivesFolderId;
+  if (paraHome === "Quarantine") return structure.quarantineFolderId;
+  return null;
+}
+
+function paraHomeToKind(paraHome) {
+  if (paraHome === "Projects") return "project";
+  if (paraHome === "Areas") return "area";
+  if (paraHome === "Archives") return "archive";
+  return "resource";
+}
+
+async function replaceDocTitle(client, docId, title) {
+  if (!nonEmptyString(title)) return;
+  await client.tool("update_doc_title", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId,
+    title: String(title).trim(),
+  });
+}
+
+async function applyExplicitStatusUpdate(client, structure, doc, payload) {
+  const reviewedAt = nowStamp();
+  const current = withBands(buildReviewFields(doc));
+  const targetKind = paraHomeToKind(payload.target_para_home);
+  const nextStatus =
+    payload.operation === "archive" ? "archived" :
+    payload.operation === "discard" ? "discarded" :
+    payload.operation === "refine" ? "refined" :
+    current.status || "curated";
+  const nextFields = withBands({
+    ...current,
+    kind: targetKind,
+    status: nextStatus,
+    summary: current.summary,
+    last_reviewed_at: reviewedAt,
+    review_due_at: reviewDueAtForStatus(nextStatus),
+    retained_reason: payload.operation === "discard" ? "" : payload.audit_note,
+    discard_reason: payload.operation === "discard" ? payload.audit_note : "",
+    refined_at: payload.operation === "refine" ? reviewedAt : current.refined_at,
+    archived_at: payload.operation === "archive" ? reviewedAt : current.archived_at,
+    discarded_at: payload.operation === "discard" ? reviewedAt : current.discarded_at,
+  });
+  const auditLines = [
+    `- action: ${payload.operation}`,
+    `- status: ${nextFields.status}`,
+    `- kind: ${nextFields.kind}`,
+    `- audit_note: ${payload.audit_note}`,
+  ];
+  const priorAudit = sectionBetween(doc.markdown, "Audit Trail", []);
+  const auditBody = [buildAuditEntry(auditLines), priorAudit].filter(Boolean).join("\n");
+  const markdown =
+    payload.operation === "refine"
+      ? buildRefinedMarkdown({
+          title: doc.title,
+          captureFields: doc.fields,
+          rawText: doc.rawText,
+          updatesText: doc.updatesText,
+          curationFields: nextFields,
+          auditBody,
+        })
+      : buildCuratedMarkdown({
+          title: doc.title,
+          captureFields: {
+            ...doc.fields,
+            status: doc.fields.status || "inbox",
+          },
+          rawText: doc.rawText,
+          updatesText: doc.updatesText,
+          curationFields: nextFields,
+          auditBody,
+        });
+  await client.tool("replace_doc_with_markdown", {
+    workspaceId: client.env.AFFINE_WORKSPACE_ID,
+    docId: doc.docId,
+    markdown,
+    strict: false,
+  });
+  const targetFolderId = paraHomeToFolderId(structure, payload.target_para_home);
+  await moveDocToFolder(client, structure, doc.docId, targetFolderId);
+  return {
+    action: payload.operation,
+    docId: doc.docId,
+    target_para_home: payload.target_para_home,
+  };
+}
+
+async function executeRetrievePayload(client, payload) {
+  const docs = await listDocsForQuery(client, {
+    query: payload.query,
+    limit: payload.limit,
+  });
+  const notes = [];
+  for (const entry of docs) {
+    const docId = entry.id || entry.docId;
+    if (!docId) continue;
+    const doc = await readDoc(client, docId);
+    const fields = buildReviewFields(doc);
+    if (payload.statuses && payload.statuses.length && !payload.statuses.includes(fields.status)) continue;
+    notes.push({
+      docId,
+      title: doc.title,
+      status: fields.status || doc.fields.status || "",
+      kind: fields.kind,
+      domain: fields.domain,
+      summary: fields.summary || summarizeText(doc.rawText),
+      source_ref: doc.fields.source_ref || "",
+    });
+  }
+  return {
+    action: "retrieved",
+    audit_note: payload.audit_note,
+    count: notes.length,
+    notes,
+  };
+}
+
+async function executeCurationPayload(client, payload) {
+  const structure = await ensureInboxSurface(client);
+  const docs = [];
+  for (const docId of payload.source_doc_ids) {
+    docs.push(await readDoc(client, docId));
+  }
+  if (payload.operation === "quarantine") {
+    const quarantined = [];
+    for (const doc of docs) {
+      const relatedDocIds = docs.filter((item) => item.docId !== doc.docId).map((item) => item.docId);
+      quarantined.push(await quarantineDoc(client, structure, doc, payload.audit_note, relatedDocIds));
+    }
+    return {
+      action: "quarantined",
+      audit_note: payload.audit_note,
+      quarantined,
+    };
+  }
+
+  if (payload.operation === "group") {
+    const targetFolderId = paraHomeToFolderId(structure, payload.target_para_home);
+    const packName = nonEmptyString(payload.grouping.pack_name) ? String(payload.grouping.pack_name).trim() : "Pack";
+    const packFolderId = await ensurePackFolder(client, structure, targetFolderId, packName);
+    for (const doc of docs) {
+      await relinkDocToOrganizeFolder(client, doc.docId, packFolderId);
+    }
+    return {
+      action: "grouped",
+      audit_note: payload.audit_note,
+      pack_name: packName,
+      pack_folder_id: packFolderId,
+      doc_ids: docs.map((doc) => doc.docId),
+    };
+  }
+
+  if (payload.operation === "place") {
+    const targetFolderId = paraHomeToFolderId(structure, payload.target_para_home);
+    const moved = [];
+    for (const doc of docs) {
+      await moveDocToFolder(client, structure, doc.docId, targetFolderId);
+      moved.push({ docId: doc.docId, title: doc.title });
+    }
+    return {
+      action: "placed",
+      audit_note: payload.audit_note,
+      target_para_home: payload.target_para_home,
+      moved,
+    };
+  }
+
+  const updated = [];
+  for (const doc of docs) {
+    updated.push(await applyExplicitStatusUpdate(client, structure, doc, payload));
+  }
+  return {
+    action: payload.operation,
+    audit_note: payload.audit_note,
+    updated,
+  };
+}
+
+async function executeAction(client, payload) {
+  const envelope = validateActionEnvelope(payload);
+  const results = [];
+  for (const item of envelope.actions) {
+    if (!item || typeof item !== "object") throw new Error("Expected JSON object action payload.");
+    if (item.mode === "write") {
+      results.push(await executeWritePayload(client, validateWritePayload(item)));
+      continue;
+    }
+    if (item.mode === "retrieve") {
+      results.push(await executeRetrievePayload(client, validateRetrievePayload(item)));
+      continue;
+    }
+    if (item.mode === "curate") {
+      results.push(await executeCurationPayload(client, validateCurationPayload(item)));
+      continue;
+    }
+    throw new Error(`Unknown payload mode: ${item.mode}`);
+  }
+  if (results.length === 1 && !envelope.label && !envelope.audit_note) {
+    return results[0];
+  }
+  return {
+    action: "batch-executed",
+    label: envelope.label || null,
+    audit_note: envelope.audit_note || null,
+    count: results.length,
+    results,
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0];
   const env = loadAffineEnv();
   ensureAffineEnv(env);
   if (!command) {
-    throw new Error("Expected a command: inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, curate-note, refine-note, review-note, review-queue, retrieve-notes, delete-notes, or run-cycle.");
+    throw new Error("Expected a command: execute-action, inspect-structure, ensure-template, create-note-from-template, capture-note, get-note, append-note, curate-note, refine-note, review-note, review-queue, retrieve-notes, delete-notes, or run-cycle.");
   }
 
   const client = new McpClient(env);
   await client.start();
   try {
+    if (command === "execute-action") {
+      const result = await executeAction(client, loadActionPayload(args));
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
     if (command === "inspect-structure") {
       const structure = await getParaStructure(client);
       console.log(JSON.stringify(structure, null, 2));
