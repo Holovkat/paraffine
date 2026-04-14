@@ -119,10 +119,11 @@ validation = " ".join(sections["validation"]).strip() or "Validation details wer
 narrative = " ".join([why, how, validation]).strip()
 
 parts = [
-    f"<h6>Changed: {subject}</h6>",
+    f"###### Changed: {subject}",
     "",
-    f"- {commit_date}",
-    f"- {narrative}",
+    commit_date,
+    "",
+    narrative,
     "",
     f"Commit `{commit_sha}` on `{branch}`.",
 ]

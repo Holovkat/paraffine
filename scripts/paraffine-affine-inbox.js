@@ -2553,6 +2553,11 @@ async function resolveTargetDoc(client, payload) {
   return readDoc(client, existing.docId);
 }
 
+function directMarkdownBlock(body) {
+  const text = String(body || "").trim();
+  return text ? `\n${text}\n` : "";
+}
+
 function mergeCaptureUpdates(existingUpdates, newBody, auditNote) {
   const additions = [String(newBody || "").trim(), auditNote ? `\nAudit: ${auditNote}` : ""].join("").trim();
   return [String(existingUpdates || "").trim(), additions].filter(Boolean).join("\n\n");
@@ -2560,6 +2565,30 @@ function mergeCaptureUpdates(existingUpdates, newBody, auditNote) {
 
 async function executeWritePayload(client, payload) {
   const structure = await ensureInboxSurface(client);
+  if (payload.source === "git-hook") {
+    const existing = payload.title ? await searchDocByTitle(client, payload.title) : null;
+    if (existing?.docId) {
+      await client.tool("append_markdown", {
+        workspaceId: client.env.AFFINE_WORKSPACE_ID,
+        docId: existing.docId,
+        markdown: directMarkdownBlock(payload.body),
+      });
+      return {
+        action: "appended",
+        audit_note: payload.audit_note,
+        doc: await readDoc(client, existing.docId),
+      };
+    }
+
+    const docId = await createInboxDoc(client, payload.title, String(payload.body || "").trim(), structure.inboxFolderId);
+    return {
+      action: "created",
+      title: payload.title,
+      ...structure,
+      doc: await readDoc(client, docId),
+    };
+  }
+
   if (payload.operation === "create") {
     return captureNote(client, {
       title: payload.title,
