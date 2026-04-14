@@ -23,6 +23,10 @@ Installed global skill paths:
 - `~/.codex/skills/paraffine`
 - `~/.agents/skills/paraffine`
 
+Installation and prerequisites:
+
+- see [paraffine-installation.md](paraffine-installation.md)
+
 ## Runtime Flows
 
 ### Interactive write or update
@@ -62,6 +66,7 @@ Behavior:
 
 - repos inherit the PARAFFINE post-commit flow unless they define a local `core.hooksPath` override
 - the current hook delegates to the PARA executor in `/Users/tonyholovka/workspace/PARA`
+- `scripts/install-paraffine-globals.sh` is the canonical installer for the global skill links and machine-wide git hook path
 
 ## Runtime Defaults
 

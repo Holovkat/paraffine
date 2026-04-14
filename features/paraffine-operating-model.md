@@ -10,6 +10,22 @@ It has three jobs:
 2. retrieve existing knowledge from the PARAFFINE corpus
 3. curate `Inbox` material into its durable PARA home in the background
 
+## Why This Exists
+
+PARAFFINE is built around two ideas:
+
+- `PARA`
+  - notes should end up where they are most useful in the long run: `Projects`, `Areas`, `Resources`, or `Archives`
+- `Karpathy-style wiki method`
+  - notes should compound into reusable, linkable knowledge instead of remaining one-off chat fragments
+
+In practice that means:
+
+- capture quickly into `Inbox`
+- retrieve before rewriting when useful knowledge already exists
+- curate later when there is enough context to decide permanent residence
+- keep reusable notes durable and linkable so they form a living wiki instead of a disposable scratchpad
+
 ## Control Flow
 
 The intended control chain is:
@@ -85,6 +101,40 @@ PARA residence is decided only during curation.
 `Inbox` is not a permanent PARA home. It is the intake and working surface.
 
 `Quarantine` is not a fifth PARA category. It is an `Inbox` workflow folder used only by curation.
+
+Short PARA summary:
+
+- `Projects`
+  - material tied to an active outcome with a finish line
+- `Areas`
+  - material tied to an ongoing responsibility without a finish line
+- `Resources`
+  - reusable reference or explainer material worth keeping
+- `Archives`
+  - inactive or historical material retained for lookup
+
+## Wiki Method
+
+The wiki side of PARAFFINE is intentionally simple:
+
+- write notes so they can be found and reused later
+- prefer updating or linking an existing note over creating duplicate fragments
+- keep notes readable by humans first
+- let retrieval and curation strengthen the corpus over time
+
+This is the reason PARAFFINE is not just an inbox capture tool. It is meant to become a durable working knowledge base.
+
+## Use Cases
+
+- a developer wants commit activity captured automatically into AFFiNE without having to remember to write a note after each change
+- an operator wants to ask `/paraffine` for existing project knowledge before writing a new note
+- a team wants AFFiNE notes to stay organized by PARA while still behaving like a practical internal wiki
+- a personal knowledge setup wants quick inbox capture now and better filing later
+
+## References
+
+- Tiago Forte, PARA method: [fortelabs.com/blog/para/](https://fortelabs.com/blog/para/)
+- Andrej Karpathy: PARAFFINE uses a Karpathy-style compounding wiki idea as an operating pattern for reusable notes rather than treating notes as disposable chat output
 
 ## Commit-Driven Updates
 

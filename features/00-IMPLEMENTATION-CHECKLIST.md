@@ -61,12 +61,12 @@ Check off items here as the final sign-off that work is complete.
 **Epic**: [GitHub issue #25](https://github.com/Holovkat/paraffine/issues/25)
 
 ### Phase 1: Reset The Contract
-- [ ] [GitHub issue #26](https://github.com/Holovkat/paraffine/issues/26) - Replace PARAFFINE docs with the final assistant-driven operating model
-- [ ] [GitHub issue #27](https://github.com/Holovkat/paraffine/issues/27) - Rewrite the PARAFFINE script as an executor over validated actions
+- [x] [GitHub issue #26](https://github.com/Holovkat/paraffine/issues/26) - Replace PARAFFINE docs with the final assistant-driven operating model
+- [x] [GitHub issue #27](https://github.com/Holovkat/paraffine/issues/27) - Rewrite the PARAFFINE script as an executor over validated actions
 
 ### Phase 2: Assistant Surface
-- [ ] [GitHub issue #28](https://github.com/Holovkat/paraffine/issues/28) - Wire the single PARAFFINE assistant surface through Pi and the skill layer
-- [ ] [GitHub issue #29](https://github.com/Holovkat/paraffine/issues/29) - Add commit-hook driven automatic PARAFFINE note updates
+- [x] [GitHub issue #28](https://github.com/Holovkat/paraffine/issues/28) - Wire the single PARAFFINE assistant surface through Pi and the skill layer
+- [x] [GitHub issue #29](https://github.com/Holovkat/paraffine/issues/29) - Add commit-hook driven automatic PARAFFINE note updates
 
 ### Phase 3: Verification
-- [ ] [GitHub issue #30](https://github.com/Holovkat/paraffine/issues/30) - Rebuild PARAFFINE verification and runtime wrappers around the rewritten flow
+- [x] [GitHub issue #30](https://github.com/Holovkat/paraffine/issues/30) - Rebuild PARAFFINE verification and runtime wrappers around the rewritten flow

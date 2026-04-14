@@ -2,6 +2,12 @@
 
 PARAFFINE is a skill-driven note assistant over AFFiNE.
 
+It combines:
+
+- the PARA method for durable residence decisions
+- a Karpathy-style wiki approach for compounding, reusable notes
+- an AFFiNE-backed executor for actual storage and linking
+
 The final model is simple:
 
 - write or update working notes in `Inbox`
@@ -70,9 +76,14 @@ Current machine-wide git hook path:
 
 - `~/.githooks/post-commit`
 
+Installation and setup:
+
+- [Installation guide](features/paraffine-installation.md)
+
 ## Final Docs
 
 - [Workspace guidance](AGENTS.md)
+- [Installation guide](features/paraffine-installation.md)
 - [Operating model](features/paraffine-operating-model.md)
 - [Executor contract](features/paraffine-executor-contract.md)
 - [Runtime](features/paraffine-runtime.md)
